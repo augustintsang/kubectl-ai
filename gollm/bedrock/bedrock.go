@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -46,6 +47,7 @@ type BedrockClient struct {
 	runtimeClient *bedrockruntime.Client
 	bedrockClient *bedrock.Client
 	options       *BedrockOptions
+	clientOpts    gollm.ClientOptions // Store original options for callbacks/debug
 }
 
 // Compile-time check to ensure BedrockClient implements the gollm.Client interface.
@@ -53,8 +55,66 @@ type BedrockClient struct {
 var _ gollm.Client = &BedrockClient{}
 
 func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockClient, error) {
-	options := DefaultOptions
-	return NewBedrockClientWithOptions(ctx, options)
+	// MERGE: Combine opts.InferenceConfig with DefaultOptions
+	options := mergeWithClientOptions(DefaultOptions, opts)
+	client, err := NewBedrockClientWithOptions(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+
+	// STORE: Keep original opts for callbacks/debug
+	client.clientOpts = opts
+	return client, nil
+}
+
+// mergeWithClientOptions merges InferenceConfig from ClientOptions into BedrockOptions
+func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) *BedrockOptions {
+	merged := *defaults // Copy defaults
+
+	if opts.InferenceConfig != nil {
+		config := opts.InferenceConfig
+		if config.Model != "" {
+			merged.Model = config.Model
+		}
+		if config.Region != "" {
+			merged.Region = config.Region
+		}
+		if config.Temperature != 0 {
+			merged.Temperature = config.Temperature
+		}
+		if config.MaxTokens != 0 {
+			merged.MaxTokens = config.MaxTokens
+		}
+		if config.TopP != 0 {
+			merged.TopP = config.TopP
+		}
+		if config.MaxRetries != 0 {
+			merged.MaxRetries = config.MaxRetries
+		}
+	}
+
+	return &merged
+}
+
+// convertAWSUsage converts AWS usage data to standardized gollm.Usage
+func convertAWSUsage(awsUsage any, model, provider string) *gollm.Usage {
+	if awsUsage == nil {
+		return nil
+	}
+
+	if usage, ok := awsUsage.(*types.TokenUsage); ok {
+		return &gollm.Usage{
+			InputTokens:  int(aws.ToInt32(usage.InputTokens)),
+			OutputTokens: int(aws.ToInt32(usage.OutputTokens)),
+			TotalTokens:  int(aws.ToInt32(usage.TotalTokens)),
+			Model:        model,
+			Provider:     provider,
+			Timestamp:    time.Now(),
+			// Cost calculation would go here if needed
+		}
+	}
+
+	return nil
 }
 
 func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (*BedrockClient, error) {
@@ -135,8 +195,10 @@ func (c *BedrockClient) GenerateCompletion(ctx context.Context, req *gollm.Compl
 	}
 
 	return &simpleBedrockCompletionResponse{
-		content: extractTextFromResponse(response),
-		usage:   response.UsageMetadata(),
+		content:  extractTextFromResponse(response),
+		usage:    response.UsageMetadata(),
+		model:    model,     // FIXED: Pass actual model name
+		provider: "bedrock", // FIXED: Pass provider name
 	}, nil
 }
 
@@ -191,6 +253,14 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 
 	response := cs.parseConverseOutput(&output.Output)
 	response.usage = output.Usage
+
+	// NEW: Call usage callback if configured
+	if cs.client.clientOpts.UsageCallback != nil {
+		if structuredUsage := convertAWSUsage(output.Usage, cs.model, "bedrock"); structuredUsage != nil {
+			cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
+		}
+	}
+
 	cs.addAssistantResponse(response)
 
 	return response, nil
@@ -487,6 +557,8 @@ func (cs *bedrockChatSession) parseConverseOutput(output *types.ConverseOutput) 
 	response := &bedrockChatResponse{
 		usage:     nil, // Will be set from the actual message
 		toolCalls: []gollm.FunctionCall{},
+		model:     cs.model,  // FIXED: Store actual model name for usage metadata
+		provider:  "bedrock", // FIXED: Store provider name for usage metadata
 	}
 
 	// ConverseOutput is an interface, need to type assert to get the actual message
@@ -565,11 +637,13 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 						text := textDelta.Value
 						fullContent.WriteString(text)
 
-						// Yield incremental response
+						// FIXED: Pass correct model and provider information
 						response := &bedrockChatResponse{
 							content:   text,
-							usage:     usage,
+							usage:     nil, // Individual chunks don't have usage yet
 							toolCalls: []gollm.FunctionCall{},
+							model:     cs.model,  // Use actual model from chat session
+							provider:  "bedrock", // Correct provider name
 						}
 
 						if !yield(response, nil) {
@@ -590,6 +664,28 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 			case *types.ConverseStreamOutputMemberMetadata:
 				if e.Value.Usage != nil {
 					usage = e.Value.Usage
+
+					// FIXED: Invoke usage callback when usage metadata is received
+					if cs.client.clientOpts.UsageCallback != nil {
+						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
+							cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
+							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", structuredUsage.TotalTokens)
+						}
+					}
+
+					// FIXED: Yield a final response with complete usage information
+					// This ensures the test can access usage metadata from streaming responses
+					finalResponse := &bedrockChatResponse{
+						content:   "",    // Empty content for metadata-only response
+						usage:     usage, // Complete usage information
+						toolCalls: []gollm.FunctionCall{},
+						model:     cs.model,  // Use actual model from chat session
+						provider:  "bedrock", // Correct provider name
+					}
+
+					if !yield(finalResponse, nil) {
+						return
+					}
 				}
 
 			default:

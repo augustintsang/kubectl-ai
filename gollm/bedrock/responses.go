@@ -20,17 +20,33 @@ import (
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 )
 
-// bedrockChatResponse implements the gollm.ChatResponse interface for Bedrock
+// implements the gollm.ChatResponse interface for Bedrock
 type bedrockChatResponse struct {
 	content   string
 	usage     any
 	toolCalls []gollm.FunctionCall
+	model     string // ADDED: Store actual model name for usage metadata
+	provider  string // ADDED: Store provider name for usage metadata
 }
 
 var _ gollm.ChatResponse = (*bedrockChatResponse)(nil)
 
 func (r *bedrockChatResponse) UsageMetadata() any {
-	return r.usage
+	// FIXED: Use actual model and provider names instead of hardcoded values
+	model := r.model
+	provider := r.provider
+	if model == "" {
+		model = "bedrock" // Fallback for backward compatibility
+	}
+	if provider == "" {
+		provider = "bedrock" // Fallback for backward compatibility
+	}
+
+	// NEW: Return structured gollm.Usage instead of raw AWS data when possible
+	if structuredUsage := convertAWSUsage(r.usage, model, provider); structuredUsage != nil {
+		return structuredUsage
+	}
+	return r.usage // Fallback to raw data
 }
 
 func (r *bedrockChatResponse) Candidates() []gollm.Candidate {
@@ -87,8 +103,10 @@ func (p *bedrockPart) AsFunctionCalls() ([]gollm.FunctionCall, bool) {
 
 // simpleBedrockCompletionResponse implements gollm.CompletionResponse for simple completions
 type simpleBedrockCompletionResponse struct {
-	content string
-	usage   any
+	content  string
+	usage    any
+	model    string // ADDED: Store actual model name for usage metadata
+	provider string // ADDED: Store provider name for usage metadata
 }
 
 var _ gollm.CompletionResponse = (*simpleBedrockCompletionResponse)(nil)
@@ -98,7 +116,21 @@ func (r *simpleBedrockCompletionResponse) Response() string {
 }
 
 func (r *simpleBedrockCompletionResponse) UsageMetadata() any {
-	return r.usage
+	// FIXED: Use actual model and provider names instead of hardcoded values
+	model := r.model
+	provider := r.provider
+	if model == "" {
+		model = "bedrock" // Fallback for backward compatibility
+	}
+	if provider == "" {
+		provider = "bedrock" // Fallback for backward compatibility
+	}
+
+	// NEW: Return structured gollm.Usage instead of raw AWS data when possible
+	if structuredUsage := convertAWSUsage(r.usage, model, provider); structuredUsage != nil {
+		return structuredUsage
+	}
+	return r.usage // Fallback to raw data
 }
 
 func extractTextFromResponse(response gollm.ChatResponse) string {

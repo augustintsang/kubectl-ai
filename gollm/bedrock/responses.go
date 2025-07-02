@@ -17,33 +17,36 @@ package bedrock
 import (
 	"fmt"
 
-	"github.com/nirmata/kubectl-ai/gollm"
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 )
 
+// implements the gollm.ChatResponse interface for Bedrock
 type bedrockChatResponse struct {
 	content   string
 	usage     any
 	toolCalls []gollm.FunctionCall
-	model     string
-	provider  string
+	model     string // ADDED: Store actual model name for usage metadata
+	provider  string // ADDED: Store provider name for usage metadata
 }
 
 var _ gollm.ChatResponse = (*bedrockChatResponse)(nil)
 
 func (r *bedrockChatResponse) UsageMetadata() any {
+	// FIXED: Use actual model and provider names instead of hardcoded values
 	model := r.model
 	provider := r.provider
 	if model == "" {
-		model = "bedrock"
+		model = "bedrock" // Fallback for backward compatibility
 	}
 	if provider == "" {
-		provider = "bedrock"
+		provider = "bedrock" // Fallback for backward compatibility
 	}
 
+	// NEW: Return structured gollm.Usage instead of raw AWS data when possible
 	if structuredUsage := convertAWSUsage(r.usage, model, provider); structuredUsage != nil {
 		return structuredUsage
 	}
-	return r.usage
+	return r.usage // Fallback to raw data
 }
 
 func (r *bedrockChatResponse) Candidates() []gollm.Candidate {
@@ -55,6 +58,7 @@ func (r *bedrockChatResponse) Candidates() []gollm.Candidate {
 	}
 }
 
+// bedrockCandidate implements the gollm.Candidate interface for Bedrock
 type bedrockCandidate struct {
 	content   string
 	toolCalls []gollm.FunctionCall
@@ -81,6 +85,7 @@ func (c *bedrockCandidate) String() string {
 		len(c.content), len(c.toolCalls))
 }
 
+// bedrockPart implements the gollm.Part interface for Bedrock
 type bedrockPart struct {
 	content   string
 	toolCalls []gollm.FunctionCall
@@ -96,11 +101,12 @@ func (p *bedrockPart) AsFunctionCalls() ([]gollm.FunctionCall, bool) {
 	return p.toolCalls, len(p.toolCalls) > 0
 }
 
+// simpleBedrockCompletionResponse implements gollm.CompletionResponse for simple completions
 type simpleBedrockCompletionResponse struct {
 	content  string
 	usage    any
-	model    string
-	provider string
+	model    string // ADDED: Store actual model name for usage metadata
+	provider string // ADDED: Store provider name for usage metadata
 }
 
 var _ gollm.CompletionResponse = (*simpleBedrockCompletionResponse)(nil)
@@ -110,19 +116,21 @@ func (r *simpleBedrockCompletionResponse) Response() string {
 }
 
 func (r *simpleBedrockCompletionResponse) UsageMetadata() any {
+	// FIXED: Use actual model and provider names instead of hardcoded values
 	model := r.model
 	provider := r.provider
 	if model == "" {
-		model = "bedrock"
+		model = "bedrock" // Fallback for backward compatibility
 	}
 	if provider == "" {
-		provider = "bedrock"
+		provider = "bedrock" // Fallback for backward compatibility
 	}
 
+	// NEW: Return structured gollm.Usage instead of raw AWS data when possible
 	if structuredUsage := convertAWSUsage(r.usage, model, provider); structuredUsage != nil {
 		return structuredUsage
 	}
-	return r.usage
+	return r.usage // Fallback to raw data
 }
 
 func extractTextFromResponse(response gollm.ChatResponse) string {

@@ -22,13 +22,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrock"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/nirmata/kubectl-ai/gollm"
 	"k8s.io/klog/v2"
 )
 
@@ -47,24 +47,29 @@ type BedrockClient struct {
 	runtimeClient *bedrockruntime.Client
 	bedrockClient *bedrock.Client
 	options       *BedrockOptions
-	clientOpts    gollm.ClientOptions
+	clientOpts    gollm.ClientOptions // Store original options for callbacks/debug
 }
 
+// Compile-time check to ensure BedrockClient implements the gollm.Client interface.
+// This will cause a compilation error if BedrockClient doesn't implement all required methods.
 var _ gollm.Client = &BedrockClient{}
 
 func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockClient, error) {
+	// MERGE: Combine opts.InferenceConfig with DefaultOptions
 	options := mergeWithClientOptions(DefaultOptions, opts)
 	client, err := NewBedrockClientWithOptions(ctx, options)
 	if err != nil {
 		return nil, err
 	}
 
+	// STORE: Keep original opts for callbacks/debug
 	client.clientOpts = opts
 	return client, nil
 }
 
+// mergeWithClientOptions merges InferenceConfig from ClientOptions into BedrockOptions
 func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) *BedrockOptions {
-	merged := *defaults
+	merged := *defaults // Copy defaults
 
 	if opts.InferenceConfig != nil {
 		config := opts.InferenceConfig
@@ -91,6 +96,7 @@ func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) 
 	return &merged
 }
 
+// convertAWSUsage converts AWS usage data to standardized gollm.Usage
 func convertAWSUsage(awsUsage any, model, provider string) *gollm.Usage {
 	if awsUsage == nil {
 		return nil
@@ -104,6 +110,7 @@ func convertAWSUsage(awsUsage any, model, provider string) *gollm.Usage {
 			Model:        model,
 			Provider:     provider,
 			Timestamp:    time.Now(),
+			// Cost calculation would go here if needed
 		}
 	}
 
@@ -123,28 +130,10 @@ func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (
 		configOptions = append(configOptions, config.WithRetryMaxAttempts(options.MaxRetries))
 	}
 
-	// Create a timeout context for AWS config loading to prevent indefinite hangs
-	// This is crucial because config.LoadDefaultConfig can hang during credential resolution
-	configTimeout := 30 * time.Second
-	if options.Timeout > 0 {
-		configTimeout = options.Timeout
-	}
-
-	configCtx, cancel := context.WithTimeout(ctx, configTimeout)
-	defer cancel()
-
-	klog.V(2).Infof("Loading AWS configuration with timeout: %v", configTimeout)
-
-	cfg, err := config.LoadDefaultConfig(configCtx, configOptions...)
+	cfg, err := config.LoadDefaultConfig(ctx, configOptions...)
 	if err != nil {
-		// Check if the error was due to context timeout
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, fmt.Errorf("%s: AWS configuration loading timed out after %v - this usually indicates credential or network issues. Please check your AWS credentials and network connectivity: %w", ErrMsgConfigLoad, configTimeout, err)
-		}
 		return nil, fmt.Errorf("%s: %w", ErrMsgConfigLoad, err)
 	}
-
-	klog.V(2).Info("AWS configuration loaded successfully")
 
 	return &BedrockClient{
 		runtimeClient: bedrockruntime.NewFromConfig(cfg),
@@ -208,8 +197,8 @@ func (c *BedrockClient) GenerateCompletion(ctx context.Context, req *gollm.Compl
 	return &simpleBedrockCompletionResponse{
 		content:  extractTextFromResponse(response),
 		usage:    response.UsageMetadata(),
-		model:    model,
-		provider: "bedrock",
+		model:    model,     // FIXED: Pass actual model name
+		provider: "bedrock", // FIXED: Pass provider name
 	}, nil
 }
 
@@ -265,6 +254,7 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 	response := cs.parseConverseOutput(&output.Output)
 	response.usage = output.Usage
 
+	// NEW: Call usage callback if configured
 	if cs.client.clientOpts.UsageCallback != nil {
 		if structuredUsage := convertAWSUsage(output.Usage, cs.model, "bedrock"); structuredUsage != nil {
 			cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
@@ -342,6 +332,7 @@ func (cs *bedrockChatSession) processContents(contents ...any) (string, error) {
 	return strings.Join(messages, "\n"), nil
 }
 
+// formatToolResult formats a tool result for AWS Bedrock
 func (cs *bedrockChatSession) formatToolResult(result gollm.FunctionCallResult) string {
 	if result.Result == nil {
 		return fmt.Sprintf("Tool %s completed successfully", result.Name)
@@ -420,6 +411,7 @@ func (cs *bedrockChatSession) createToolUseBlock(toolCall gollm.FunctionCall) *t
 	return toolUseBlock
 }
 
+// Legacy method aliases for backward compatibility
 func (cs *bedrockChatSession) addMessageToHistory(role types.ConversationRole, content string) {
 	cs.addTextMessage(role, content)
 }
@@ -563,12 +555,13 @@ func convertSchemaToMap(schema *gollm.Schema) map[string]any {
 
 func (cs *bedrockChatSession) parseConverseOutput(output *types.ConverseOutput) *bedrockChatResponse {
 	response := &bedrockChatResponse{
-		usage:     nil,
+		usage:     nil, // Will be set from the actual message
 		toolCalls: []gollm.FunctionCall{},
-		model:     cs.model,
-		provider:  "bedrock",
+		model:     cs.model,  // FIXED: Store actual model name for usage metadata
+		provider:  "bedrock", // FIXED: Store provider name for usage metadata
 	}
 
+	// ConverseOutput is an interface, need to type assert to get the actual message
 	if messageOutput, ok := (*output).(*types.ConverseOutputMemberMessage); ok {
 		message := messageOutput.Value
 		if len(message.Content) > 0 {
@@ -619,6 +612,7 @@ func (cs *bedrockChatSession) parseConverseOutput(output *types.ConverseOutput) 
 
 func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.ConverseStreamOutput) gollm.ChatResponseIterator {
 	return func(yield func(gollm.ChatResponse, error) bool) {
+		//Fix: Safety check for nil output or stream
 		if output == nil || output.GetStream() == nil {
 			yield(nil, fmt.Errorf("streaming output or stream is nil"))
 			return
@@ -643,12 +637,13 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 						text := textDelta.Value
 						fullContent.WriteString(text)
 
+						// FIXED: Pass correct model and provider information
 						response := &bedrockChatResponse{
 							content:   text,
-							usage:     nil,
+							usage:     nil, // Individual chunks don't have usage yet
 							toolCalls: []gollm.FunctionCall{},
-							model:     cs.model,
-							provider:  "bedrock",
+							model:     cs.model,  // Use actual model from chat session
+							provider:  "bedrock", // Correct provider name
 						}
 
 						if !yield(response, nil) {
@@ -670,6 +665,7 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				if e.Value.Usage != nil {
 					usage = e.Value.Usage
 
+					// FIXED: Invoke usage callback when usage metadata is received
 					if cs.client.clientOpts.UsageCallback != nil {
 						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
 							cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
@@ -677,12 +673,14 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 						}
 					}
 
+					// FIXED: Yield a final response with complete usage information
+					// This ensures the test can access usage metadata from streaming responses
 					finalResponse := &bedrockChatResponse{
-						content:   "",
-						usage:     usage,
+						content:   "",    // Empty content for metadata-only response
+						usage:     usage, // Complete usage information
 						toolCalls: []gollm.FunctionCall{},
-						model:     cs.model,
-						provider:  "bedrock",
+						model:     cs.model,  // Use actual model from chat session
+						provider:  "bedrock", // Correct provider name
 					}
 
 					if !yield(finalResponse, nil) {

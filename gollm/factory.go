@@ -51,7 +51,12 @@ func (r *registry) listProviders() []string {
 type ClientOptions struct {
 	URL           *url.URL
 	SkipVerifySSL bool
-	// Extend with more options as needed
+
+	// NEW: Enhanced capabilities for usage tracking and inference configuration
+	InferenceConfig *InferenceConfig // Inference parameters for provider configuration
+	UsageCallback   UsageCallback    // Callback for structured usage metrics
+	UsageExtractor  UsageExtractor   // Custom usage extraction logic
+	Debug           bool             // Enable debug logging
 }
 
 // Option is a functional option for configuring ClientOptions.
@@ -61,6 +66,40 @@ type Option func(*ClientOptions)
 func WithSkipVerifySSL() Option {
 	return func(o *ClientOptions) {
 		o.SkipVerifySSL = true
+	}
+}
+
+// WithInferenceConfig sets inference configuration for provider-agnostic parameter passing.
+// This allows specifying model parameters (temperature, max tokens, etc.) in a standardized way
+// that each provider can interpret according to their capabilities.
+func WithInferenceConfig(config *InferenceConfig) Option {
+	return func(o *ClientOptions) {
+		o.InferenceConfig = config
+	}
+}
+
+// WithUsageCallback sets a callback function to receive structured usage metrics.
+// The callback is called whenever usage data is available, enabling cost tracking
+// and metrics aggregation across multiple model calls.
+func WithUsageCallback(callback UsageCallback) Option {
+	return func(o *ClientOptions) {
+		o.UsageCallback = callback
+	}
+}
+
+// WithUsageExtractor sets custom usage extraction logic for converting provider-specific
+// raw usage data into standardized Usage structs. If not provided, providers will use
+// their default extraction logic.
+func WithUsageExtractor(extractor UsageExtractor) Option {
+	return func(o *ClientOptions) {
+		o.UsageExtractor = extractor
+	}
+}
+
+// WithDebug enables debug logging for troubleshooting provider behavior and usage tracking.
+func WithDebug(debug bool) Option {
+	return func(o *ClientOptions) {
+		o.Debug = debug
 	}
 }
 

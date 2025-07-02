@@ -1,0 +1,154 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package bedrock
+
+import (
+	"fmt"
+
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+)
+
+// implements the gollm.ChatResponse interface for Bedrock
+type bedrockChatResponse struct {
+	content   string
+	usage     any
+	toolCalls []gollm.FunctionCall
+	model     string // ADDED: Store actual model name for usage metadata
+	provider  string // ADDED: Store provider name for usage metadata
+}
+
+var _ gollm.ChatResponse = (*bedrockChatResponse)(nil)
+
+func (r *bedrockChatResponse) UsageMetadata() any {
+	// FIXED: Use actual model and provider names instead of hardcoded values
+	model := r.model
+	provider := r.provider
+	if model == "" {
+		model = "bedrock" // Fallback for backward compatibility
+	}
+	if provider == "" {
+		provider = "bedrock" // Fallback for backward compatibility
+	}
+
+	// NEW: Return structured gollm.Usage instead of raw AWS data when possible
+	if structuredUsage := convertAWSUsage(r.usage, model, provider); structuredUsage != nil {
+		return structuredUsage
+	}
+	return r.usage // Fallback to raw data
+}
+
+func (r *bedrockChatResponse) Candidates() []gollm.Candidate {
+	return []gollm.Candidate{
+		&bedrockCandidate{
+			content:   r.content,
+			toolCalls: r.toolCalls,
+		},
+	}
+}
+
+// bedrockCandidate implements the gollm.Candidate interface for Bedrock
+type bedrockCandidate struct {
+	content   string
+	toolCalls []gollm.FunctionCall
+}
+
+var _ gollm.Candidate = (*bedrockCandidate)(nil)
+
+func (c *bedrockCandidate) Parts() []gollm.Part {
+	var parts []gollm.Part
+
+	if c.content != "" {
+		parts = append(parts, &bedrockPart{content: c.content})
+	}
+
+	if len(c.toolCalls) > 0 {
+		parts = append(parts, &bedrockPart{toolCalls: c.toolCalls})
+	}
+
+	return parts
+}
+
+func (c *bedrockCandidate) String() string {
+	return fmt.Sprintf("BedrockCandidate(Content: %d chars, ToolCalls: %d)",
+		len(c.content), len(c.toolCalls))
+}
+
+// bedrockPart implements the gollm.Part interface for Bedrock
+type bedrockPart struct {
+	content   string
+	toolCalls []gollm.FunctionCall
+}
+
+var _ gollm.Part = (*bedrockPart)(nil)
+
+func (p *bedrockPart) AsText() (string, bool) {
+	return p.content, p.content != ""
+}
+
+func (p *bedrockPart) AsFunctionCalls() ([]gollm.FunctionCall, bool) {
+	return p.toolCalls, len(p.toolCalls) > 0
+}
+
+// simpleBedrockCompletionResponse implements gollm.CompletionResponse for simple completions
+type simpleBedrockCompletionResponse struct {
+	content  string
+	usage    any
+	model    string // ADDED: Store actual model name for usage metadata
+	provider string // ADDED: Store provider name for usage metadata
+}
+
+var _ gollm.CompletionResponse = (*simpleBedrockCompletionResponse)(nil)
+
+func (r *simpleBedrockCompletionResponse) Response() string {
+	return r.content
+}
+
+func (r *simpleBedrockCompletionResponse) UsageMetadata() any {
+	// FIXED: Use actual model and provider names instead of hardcoded values
+	model := r.model
+	provider := r.provider
+	if model == "" {
+		model = "bedrock" // Fallback for backward compatibility
+	}
+	if provider == "" {
+		provider = "bedrock" // Fallback for backward compatibility
+	}
+
+	// NEW: Return structured gollm.Usage instead of raw AWS data when possible
+	if structuredUsage := convertAWSUsage(r.usage, model, provider); structuredUsage != nil {
+		return structuredUsage
+	}
+	return r.usage // Fallback to raw data
+}
+
+func extractTextFromResponse(response gollm.ChatResponse) string {
+	if response == nil {
+		return ""
+	}
+
+	candidates := response.Candidates()
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	parts := candidates[0].Parts()
+	for _, part := range parts {
+		if text, ok := part.AsText(); ok {
+			return text
+		}
+	}
+
+	return ""
+}

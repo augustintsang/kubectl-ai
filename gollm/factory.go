@@ -130,17 +130,29 @@ func (r *registry) NewClient(ctx context.Context, providerID string, opts ...Opt
 		providerID = providerID + "://"
 	}
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
 	u, err := url.Parse(providerID)
 	if err != nil {
 		return nil, fmt.Errorf("parsing provider id %q: %w", providerID, err)
 	}
 
-	factoryFunc := r.providers[u.Scheme]
+	// Get the factory function and available providers list while holding the mutex
+	var factoryFunc FactoryFunc
+	var availableProviders []string
+
+	r.mutex.Lock()
+	factoryFunc = r.providers[u.Scheme]
 	if factoryFunc == nil {
-		return nil, fmt.Errorf("provider %q not registered. Available providers: %v", u.Scheme, r.listProviders())
+		// Get list of available providers for error message
+		availableProviders = make([]string, 0, len(r.providers))
+		for k := range r.providers {
+			availableProviders = append(availableProviders, k)
+		}
+	}
+	r.mutex.Unlock()
+
+	// Check if provider was found after releasing the mutex
+	if factoryFunc == nil {
+		return nil, fmt.Errorf("provider %q not registered. Available providers: %v", u.Scheme, availableProviders)
 	}
 
 	// Build ClientOptions
@@ -155,6 +167,7 @@ func (r *registry) NewClient(ctx context.Context, providerID string, opts ...Opt
 		opt(&clientOpts)
 	}
 
+	// Call the factory function without holding the mutex to avoid deadlock
 	return factoryFunc(ctx, clientOpts)
 }
 
@@ -167,7 +180,15 @@ func NewClient(ctx context.Context, providerID string, opts ...Option) (Client, 
 	if providerID == "" {
 		s := os.Getenv("LLM_CLIENT")
 		if s == "" {
-			return nil, fmt.Errorf("LLM_CLIENT is not set. Available providers: %v", globalRegistry.listProviders())
+			// Get available providers without holding mutex to avoid potential deadlock
+			globalRegistry.mutex.Lock()
+			providers := make([]string, 0, len(globalRegistry.providers))
+			for k := range globalRegistry.providers {
+				providers = append(providers, k)
+			}
+			globalRegistry.mutex.Unlock()
+
+			return nil, fmt.Errorf("LLM_CLIENT is not set. Available providers: %v", providers)
 		}
 		providerID = s
 	}

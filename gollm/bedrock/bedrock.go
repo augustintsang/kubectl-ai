@@ -109,10 +109,28 @@ func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (
 		configOptions = append(configOptions, config.WithRetryMaxAttempts(options.MaxRetries))
 	}
 
-	cfg, err := config.LoadDefaultConfig(ctx, configOptions...)
+	// Create a timeout context for AWS config loading to prevent indefinite hangs
+	// This is crucial because config.LoadDefaultConfig can hang during credential resolution
+	configTimeout := 30 * time.Second
+	if options.Timeout > 0 {
+		configTimeout = options.Timeout
+	}
+
+	configCtx, cancel := context.WithTimeout(ctx, configTimeout)
+	defer cancel()
+
+	klog.V(2).Infof("Loading AWS configuration with timeout: %v", configTimeout)
+
+	cfg, err := config.LoadDefaultConfig(configCtx, configOptions...)
 	if err != nil {
+		// Check if the error was due to context timeout
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%s: AWS configuration loading timed out after %v - this usually indicates credential or network issues. Please check your AWS credentials and network connectivity: %w", ErrMsgConfigLoad, configTimeout, err)
+		}
 		return nil, fmt.Errorf("%s: %w", ErrMsgConfigLoad, err)
 	}
+
+	klog.V(2).Info("AWS configuration loaded successfully")
 
 	return &BedrockClient{
 		runtimeClient: bedrockruntime.NewFromConfig(cfg),

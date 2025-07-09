@@ -1,0 +1,13 @@
+E0702 14:27:20.383432    3186 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:27:50.387007    3186 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:28:20.389938    3186 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:28:50.393726    3186 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:29:20.419864    3186 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+Unable to connect to the server: dial tcp 10.1.8.108:443: i/o timeout
+Unable to connect to the server: dial tcp 10.1.8.108:443: i/o timeout
+error: error validating "STDIN": error validating data: failed to download openapi: Get "https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/openapi/v2?timeout=32s": dial tcp 10.1.8.108:443: i/o timeout; if you choose to ignore these errors, turn validation off with --validate=false
+error: failed to create ClusterIP service: Post "https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api/v1/namespaces/health-check/services?fieldManager=kubectl-create&fieldValidation=Strict": dial tcp 10.1.8.108:443: i/o timeout
+Waiting for pod to start and begin failing health checks...
+E0702 14:31:55.267768    3620 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:32:25.274968    3620 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:32:55.277664    3620 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"

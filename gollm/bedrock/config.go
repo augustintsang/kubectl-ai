@@ -15,9 +15,13 @@
 package bedrock
 
 import (
+	"context"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
@@ -199,3 +203,186 @@ func getSupportedModelsForRegion(region string) []string {
 
 	return result
 }
+
+// BedrockUsageCallback is a bedrock-specific callback for usage tracking
+// This is separate from the global gollm interfaces to keep scope limited to bedrock
+type BedrockUsageCallback func(provider, model string, usage gollm.Usage)
+
+// BedrockClientOptions provides bedrock-specific configuration
+// This replaces the need for global ClientOptions changes
+type BedrockClientOptions struct {
+	// Existing SSL option (preserved for compatibility)
+	SkipVerifySSL bool
+
+	// Bedrock-specific features that don't affect other providers
+	UsageCallback BedrockUsageCallback
+	Debug         bool
+
+	// Advanced inference parameters (loaded from env vars if not specified)
+	Temperature float32
+	MaxTokens   int32
+	TopP        float32
+	TopK        int32
+	MaxRetries  int
+	Region      string
+	Model       string
+	Timeout     time.Duration
+}
+
+// LoadBedrockConfigFromEnv loads advanced configuration from environment variables
+// This addresses droot's preference for env vars over explicit config
+func LoadBedrockConfigFromEnv() BedrockClientOptions {
+	opts := BedrockClientOptions{
+		// Set sensible defaults
+		Temperature: 0.1,
+		MaxTokens:   64000,
+		TopP:        0.9,
+		TopK:        40,
+		MaxRetries:  3,
+		Region:      "us-west-2",
+		Model:       "us.anthropic.claude-sonnet-4-20250514-v1:0",
+		Timeout:     30 * time.Second,
+	}
+
+	// Load from environment variables
+	if temp := os.Getenv("BEDROCK_TEMPERATURE"); temp != "" {
+		if val, err := strconv.ParseFloat(temp, 32); err == nil {
+			opts.Temperature = float32(val)
+		}
+	}
+
+	if maxTokens := os.Getenv("BEDROCK_MAX_TOKENS"); maxTokens != "" {
+		if val, err := strconv.Atoi(maxTokens); err == nil {
+			opts.MaxTokens = int32(val)
+		}
+	}
+
+	if topP := os.Getenv("BEDROCK_TOP_P"); topP != "" {
+		if val, err := strconv.ParseFloat(topP, 32); err == nil {
+			opts.TopP = float32(val)
+		}
+	}
+
+	if topK := os.Getenv("BEDROCK_TOP_K"); topK != "" {
+		if val, err := strconv.Atoi(topK); err == nil {
+			opts.TopK = int32(val)
+		}
+	}
+
+	if retries := os.Getenv("BEDROCK_MAX_RETRIES"); retries != "" {
+		if val, err := strconv.Atoi(retries); err == nil {
+			opts.MaxRetries = val
+		}
+	}
+
+	if region := os.Getenv("BEDROCK_REGION"); region != "" {
+		opts.Region = region
+	}
+
+	if model := os.Getenv("BEDROCK_MODEL"); model != "" {
+		opts.Model = model
+	}
+
+	if timeout := os.Getenv("BEDROCK_TIMEOUT"); timeout != "" {
+		if val, err := time.ParseDuration(timeout); err == nil {
+			opts.Timeout = val
+		}
+	}
+
+	if os.Getenv("BEDROCK_DEBUG") == "true" {
+		opts.Debug = true
+	}
+
+	return opts
+}
+
+// ToBedrockOptions converts BedrockClientOptions to the internal BedrockOptions
+// This bridges the new bedrock-specific config with the existing implementation
+func (opts BedrockClientOptions) ToBedrockOptions() *BedrockOptions {
+	return &BedrockOptions{
+		Model:               opts.Model,
+		Region:              opts.Region,
+		Temperature:         opts.Temperature,
+		MaxTokens:           opts.MaxTokens,
+		TopP:                opts.TopP,
+		MaxRetries:          opts.MaxRetries,
+		Timeout:             opts.Timeout,
+		CredentialsProvider: nil, // Keep existing behavior
+	}
+}
+
+// MergeWithDefaults combines user options with environment and defaults
+// This replaces the global mergeWithClientOptions function
+func (opts BedrockClientOptions) MergeWithDefaults() BedrockClientOptions {
+	// Start with environment variables as base
+	merged := LoadBedrockConfigFromEnv()
+
+	// Override with user-specified values (zero values are ignored)
+	if opts.Temperature != 0 {
+		merged.Temperature = opts.Temperature
+	}
+	if opts.MaxTokens != 0 {
+		merged.MaxTokens = opts.MaxTokens
+	}
+	if opts.TopP != 0 {
+		merged.TopP = opts.TopP
+	}
+	if opts.TopK != 0 {
+		merged.TopK = opts.TopK
+	}
+	if opts.MaxRetries != 0 {
+		merged.MaxRetries = opts.MaxRetries
+	}
+	if opts.Region != "" {
+		merged.Region = opts.Region
+	}
+	if opts.Model != "" {
+		merged.Model = opts.Model
+	}
+	if opts.Timeout != 0 {
+		merged.Timeout = opts.Timeout
+	}
+
+	// Always use user-specified callback and debug settings
+	merged.UsageCallback = opts.UsageCallback
+	merged.Debug = opts.Debug
+	merged.SkipVerifySSL = opts.SkipVerifySSL
+
+	return merged
+}
+
+// NewBedrockClientWithConfig creates a new bedrock client with bedrock-specific options
+// This is the new recommended way to create bedrock clients with enhanced features
+func NewBedrockClientWithConfig(ctx context.Context, opts BedrockClientOptions) (*BedrockClient, error) {
+	// Merge user options with defaults and environment
+	config := opts.MergeWithDefaults()
+
+	// Convert to internal BedrockOptions format
+	bedrockOpts := config.ToBedrockOptions()
+
+	// Create the client using existing infrastructure
+	client, err := NewBedrockClientWithOptions(ctx, bedrockOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store bedrock-specific configuration
+	client.bedrockConfig = config
+
+	return client, nil
+}
+
+// BedrockClientWrapper wraps BedrockClient to implement gollm.Client interface
+// This allows bedrock-specific clients to work with existing gollm interfaces
+type BedrockClientWrapper struct {
+	*BedrockClient
+}
+
+// WrapAsGollmClient wraps a bedrock client to implement gollm.Client
+// This preserves compatibility with existing code that expects gollm.Client
+func WrapAsGollmClient(client *BedrockClient) gollm.Client {
+	return &BedrockClientWrapper{BedrockClient: client}
+}
+
+// Ensure wrapper implements gollm.Client
+var _ gollm.Client = (*BedrockClientWrapper)(nil)

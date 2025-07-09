@@ -9,7 +9,6 @@ AWS Bedrock is Amazon's managed service for foundational models from leading AI 
 - **Anthropic Claude**: Advanced reasoning and code generation
 - **Amazon Nova**: High-performance and cost-effective models
 - **Mistral**: Multilingual and specialized models
-- **Stability AI**: Image generation and processing models
 
 ## Prerequisites
 
@@ -84,17 +83,16 @@ llm-provider: bedrock
 model: us.anthropic.claude-sonnet-4-20250514-v1:0
 ```
 
-### Advanced Configuration
+### Environment Variables for Advanced Configuration
 
-```yaml
-llm-provider: bedrock
-model: us.anthropic.claude-sonnet-4-20250514-v1:0
-temperature: 0.7
-max-tokens: 4000
-top-p: 0.9
-max-retries: 3
-region: us-west-2
-timeout: 30s
+For advanced model parameters, use environment variables:
+
+```bash
+export BEDROCK_TEMPERATURE=0.7
+export BEDROCK_MAX_TOKENS=4000
+export BEDROCK_TOP_P=0.9
+export BEDROCK_MAX_RETRIES=3
+export BEDROCK_TIMEOUT=30s
 ```
 
 ## Usage
@@ -133,58 +131,7 @@ echo "create a configmap from my .env file" | kubectl-ai --llm-provider bedrock
 
 ## Available Models
 
-### By Region
-
-The following models are available in different AWS regions:
-
-#### US East (N. Virginia) - us-east-1
-- `us.anthropic.claude-sonnet-4-20250514-v1:0`
-- `us.anthropic.claude-3-7-sonnet-20250219-v1:0`
-- `us.amazon.nova-pro-v1:0`
-- `us.amazon.nova-lite-v1:0`
-- `us.amazon.nova-micro-v1:0`
-- `anthropic.claude-v2:1`
-- `anthropic.claude-instant-v1`
-- `amazon.nova-pro-v1:0`
-- `mistral.mistral-large-2402-v1:0`
-
-#### US West (Oregon) - us-west-2
-- `us.anthropic.claude-sonnet-4-20250514-v1:0`
-- `us.anthropic.claude-3-7-sonnet-20250219-v1:0`
-- `us.amazon.nova-pro-v1:0`
-- `us.amazon.nova-lite-v1:0`
-- `us.amazon.nova-micro-v1:0`
-- `anthropic.claude-v2:1`
-- `amazon.nova-pro-v1:0`
-- `stability.sd3-large-v1:0`
-
-#### EU (Ireland) - eu-west-1
-- `anthropic.claude-v2:1`
-- `anthropic.claude-instant-v1`
-- `amazon.nova-pro-v1:0`
-- `amazon.nova-lite-v1:0`
-- `amazon.nova-micro-v1:0`
-
-#### EU (Frankfurt) - eu-central-1
-- `anthropic.claude-v2:1`
-- `anthropic.claude-instant-v1`
-- `amazon.nova-pro-v1:0`
-- `amazon.nova-lite-v1:0`
-- `amazon.nova-micro-v1:0`
-
-#### Asia Pacific (Singapore) - ap-southeast-1
-- `anthropic.claude-v2:1`
-- `anthropic.claude-instant-v1`
-- `amazon.nova-pro-v1:0`
-- `amazon.nova-lite-v1:0`
-- `amazon.nova-micro-v1:0`
-
-#### Asia Pacific (Tokyo) - ap-northeast-1
-- `anthropic.claude-v2:1`
-- `anthropic.claude-instant-v1`
-- `amazon.nova-pro-v1:0`
-- `amazon.nova-lite-v1:0`
-- `amazon.nova-micro-v1:0`
+For the most up-to-date list of available models by region, see the [AWS Bedrock Models Documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html).
 
 ### Model Recommendations
 
@@ -209,7 +156,7 @@ Error: failed to invoke Bedrock model: access denied
 Error: unsupported model - only Claude and Nova models are supported
 ```
 
-**Solution**: Use a supported model from the list above, or check if the model is available in your region.
+**Solution**: Use a supported model from the AWS documentation, or check if the model is available in your region.
 
 #### 3. "Region Not Available" Error
 ```bash
@@ -223,9 +170,9 @@ Error: failed to load AWS configuration
 Error: context deadline exceeded
 ```
 
-**Solution**: Increase timeout value:
+**Solution**: Increase timeout value using environment variable:
 ```bash
-kubectl-ai --llm-provider bedrock --timeout 60s
+export BEDROCK_TIMEOUT=60s
 ```
 
 ### Debug Mode
@@ -233,7 +180,8 @@ kubectl-ai --llm-provider bedrock --timeout 60s
 Enable debug mode for detailed logging:
 
 ```bash
-kubectl-ai --llm-provider bedrock --debug
+export BEDROCK_DEBUG=true
+kubectl-ai --llm-provider bedrock
 ```
 
 ### Verify Configuration
@@ -244,28 +192,7 @@ Check your current configuration:
 kubectl-ai --llm-provider bedrock model
 ```
 
-## Cost Optimization
-
-### Token Usage Tracking
-
-kubectl-ai provides built-in token usage tracking:
-
-```bash
-# The system automatically tracks:
-# - Input tokens
-# - Output tokens
-# - Total cost per request
-# - Provider and model information
-```
-
-### Best Practices
-
-1. **Choose appropriate models**: Use lighter models for simple tasks
-2. **Set reasonable limits**: Configure max-tokens to prevent runaway costs
-3. **Use region-specific models**: Avoid cross-region data transfer costs
-4. **Monitor usage**: Enable usage callbacks for cost tracking
-
-## Advanced Features
+## Advanced Bedrock Features
 
 ### Custom Inference Profiles
 
@@ -275,42 +202,15 @@ Use AWS Bedrock Inference Profiles:
 kubectl-ai --llm-provider bedrock --model "arn:aws:bedrock:us-west-2:123456789012:inference-profile/my-profile"
 ```
 
-### Streaming Responses
+### Token Usage Tracking
 
-Enable streaming for real-time responses:
+Bedrock responses include built-in token usage information. You can access this programmatically:
 
-```bash
-kubectl-ai --llm-provider bedrock --stream
-```
-
-### Custom Timeouts
-
-Configure custom timeouts:
-
-```bash
-kubectl-ai --llm-provider bedrock --timeout 120s
-```
-
-## Integration with Other Tools
-
-### With MCP (Model Context Protocol)
-
-```bash
-# Use Bedrock with MCP client mode
-kubectl-ai --llm-provider bedrock --mcp-client
-
-# Use Bedrock as MCP server
-kubectl-ai --llm-provider bedrock --mcp-server
-```
-
-### With Custom Tools
-
-```yaml
-# ~/.config/kubectl-ai/tools.yaml
-- name: bedrock-specific-tool
-  description: "Tool that works well with Bedrock models"
-  command: "your-command"
-  command_desc: "Detailed description for Bedrock AI"
+```go
+response, err := chat.Send(ctx, "Hello!")
+if usage, ok := response.UsageMetadata().(*gollm.Usage); ok {
+    fmt.Printf("Tokens used: %d\n", usage.TotalTokens)
+}
 ```
 
 ## Examples
@@ -346,15 +246,4 @@ For issues specific to the Bedrock integration:
 1. Check the [kubectl-ai GitHub Issues](https://github.com/GoogleCloudPlatform/kubectl-ai/issues)
 2. Review [AWS Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
 3. Verify your AWS credentials and permissions
-4. Enable debug mode for detailed error messages
-
-## Contributing
-
-The Bedrock integration is actively maintained. Contributions are welcome:
-
-- Report bugs and issues
-- Request new model support
-- Improve documentation
-- Add region-specific features
-
-See our [Contributing Guide](../contributing.md) for more details. 
+4. Enable debug mode for detailed error messages 

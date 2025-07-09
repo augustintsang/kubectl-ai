@@ -1,0 +1,10 @@
+error: 'running command /Users/augustintsang/Documents_MacBookAir/cs_projects/kubectl-ai-3/k8s-bench/tasks/create-pod-mount-configmaps/setup.sh:
+  exit status 1'
+llmConfig:
+  enableToolUseShim: false
+  id: shim_disabled-bedrock-us.anthropic.claude-sonnet-4-20250514-v1:0
+  model: us.anthropic.claude-sonnet-4-20250514-v1:0
+  provider: bedrock
+  quiet: true
+name: create-pod-mount-configmaps
+result: ""

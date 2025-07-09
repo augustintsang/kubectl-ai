@@ -1,0 +1,15 @@
+E0702 14:27:19.881324    3179 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:27:49.884159    3179 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:28:19.887188    3179 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:28:49.890150    3179 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:29:20.269254    3179 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+Unable to connect to the server: dial tcp 10.1.8.108:443: i/o timeout
+Unable to connect to the server: dial tcp 10.1.8.108:443: i/o timeout
+error: failed to create deployment: Post "https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/apis/apps/v1/namespaces/rollout-test/deployments?fieldManager=kubectl-create&fieldValidation=Strict": dial tcp 10.1.8.108:443: i/o timeout
+E0702 14:30:54.610133    3537 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:31:24.613481    3537 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:31:54.617161    3537 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+E0702 14:32:24.619008    3537 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"
+Unable to connect to the server: dial tcp 10.1.8.108:443: i/o timeout
+Initial deployment did not become ready in time
+E0702 14:32:55.134151    3701 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://BDE1BE1D2A0EA11E5638852206B73B39.gr7.us-west-2.eks.amazonaws.com/api?timeout=32s\": dial tcp 10.1.8.108:443: i/o timeout"

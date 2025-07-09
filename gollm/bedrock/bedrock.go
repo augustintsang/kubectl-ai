@@ -34,6 +34,7 @@ type BedrockClient struct {
 	bedrockClient *bedrock.Client
 	options       *BedrockOptions
 	clientOpts    gollm.ClientOptions
+	bedrockConfig BedrockClientOptions // Add field for bedrock-specific config
 }
 
 var _ gollm.Client = &BedrockClient{}
@@ -251,9 +252,10 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 	response := cs.parseConverseOutput(&output.Output)
 	response.usage = output.Usage
 
-	if cs.client.clientOpts.UsageCallback != nil {
+	// Use bedrock-specific usage callback instead of global ClientOptions
+	if cs.client.bedrockConfig.UsageCallback != nil {
 		if structuredUsage := convertAWSUsage(output.Usage, cs.model, "bedrock"); structuredUsage != nil {
-			cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
+			cs.client.bedrockConfig.UsageCallback("bedrock", cs.model, *structuredUsage)
 		}
 	}
 
@@ -656,9 +658,9 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				if e.Value.Usage != nil {
 					usage = e.Value.Usage
 
-					if cs.client.clientOpts.UsageCallback != nil {
+					if cs.client.bedrockConfig.UsageCallback != nil {
 						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
-							cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
+							cs.client.bedrockConfig.UsageCallback("bedrock", cs.model, *structuredUsage)
 							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", structuredUsage.TotalTokens)
 						}
 					}

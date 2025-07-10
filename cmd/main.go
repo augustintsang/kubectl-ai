@@ -31,6 +31,8 @@ import (
 	"syscall"
 
 	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	// Import bedrock package to register the bedrock provider
+	_ "github.com/GoogleCloudPlatform/kubectl-ai/gollm/bedrock"
 	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/agent"
 	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/journal"
 	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/mcp"

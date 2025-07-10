@@ -53,27 +53,9 @@ func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockCl
 func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) *BedrockOptions {
 	merged := *defaults
 
-	if opts.InferenceConfig != nil {
-		config := opts.InferenceConfig
-		if config.Model != "" {
-			merged.Model = config.Model
-		}
-		if config.Region != "" {
-			merged.Region = config.Region
-		}
-		if config.Temperature != 0 {
-			merged.Temperature = config.Temperature
-		}
-		if config.MaxTokens != 0 {
-			merged.MaxTokens = config.MaxTokens
-		}
-		if config.TopP != 0 {
-			merged.TopP = config.TopP
-		}
-		if config.MaxRetries != 0 {
-			merged.MaxRetries = config.MaxRetries
-		}
-	}
+	// Remove all InferenceConfig usage - that comes in PR #2
+	// For now, just return defaults since no global config
+	// Usage metadata via response.UsageMetadata() still works!
 
 	return &merged
 }
@@ -427,6 +409,8 @@ func (cs *bedrockChatSession) buildConverseInput() *bedrockruntime.ConverseInput
 			MaxTokens:   aws.Int32(cs.client.options.MaxTokens),
 			Temperature: aws.Float32(cs.client.options.Temperature),
 			TopP:        aws.Float32(cs.client.options.TopP),
+			// Note: TopK not available in AWS Bedrock InferenceConfiguration
+			// Keeping in BedrockOptions for future use and compatibility
 		},
 	}
 
@@ -458,6 +442,8 @@ func (cs *bedrockChatSession) buildConverseStreamInput() *bedrockruntime.Convers
 			MaxTokens:   aws.Int32(cs.client.options.MaxTokens),
 			Temperature: aws.Float32(cs.client.options.Temperature),
 			TopP:        aws.Float32(cs.client.options.TopP),
+			// Note: TopK not available in AWS Bedrock InferenceConfiguration
+			// Keeping in BedrockOptions for future use and compatibility
 		},
 	}
 

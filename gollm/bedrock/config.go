@@ -43,6 +43,7 @@ type BedrockOptions struct {
 	MaxTokens           int32
 	Temperature         float32
 	TopP                float32
+	TopK                int32
 	Timeout             time.Duration
 	MaxRetries          int
 }
@@ -53,6 +54,7 @@ var DefaultOptions = &BedrockOptions{
 	MaxTokens:   64000,
 	Temperature: 0.1,
 	TopP:        0.9,
+	TopK:        40, // ✅ ADD default TopK value for PR #1
 	Timeout:     30 * time.Second,
 	MaxRetries:  10,
 }

@@ -33,50 +33,27 @@ type BedrockClient struct {
 	runtimeClient *bedrockruntime.Client
 	bedrockClient *bedrock.Client
 	options       *BedrockOptions
-	clientOpts    gollm.ClientOptions
+
+	// Extension interface fields for provider-specific configuration
+	inferenceConfig *InferenceConfig
+	usageCallback   UsageCallback
 }
 
+// Ensure BedrockClient implements both interfaces
 var _ gollm.Client = &BedrockClient{}
+var _ ConfigurableClient = &BedrockClient{}
 
 func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockClient, error) {
-	options := mergeWithClientOptions(DefaultOptions, opts)
-	client, err := NewBedrockClientWithOptions(ctx, options)
+	// Use default options since we no longer merge with global ClientOptions
+	client, err := NewBedrockClientWithOptions(ctx, DefaultOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	client.clientOpts = opts
 	return client, nil
 }
 
-func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) *BedrockOptions {
-	merged := *defaults
-
-	if opts.InferenceConfig != nil {
-		config := opts.InferenceConfig
-		if config.Model != "" {
-			merged.Model = config.Model
-		}
-		if config.Region != "" {
-			merged.Region = config.Region
-		}
-		if config.Temperature != 0 {
-			merged.Temperature = config.Temperature
-		}
-		if config.MaxTokens != 0 {
-			merged.MaxTokens = config.MaxTokens
-		}
-		if config.TopP != 0 {
-			merged.TopP = config.TopP
-		}
-		if config.MaxRetries != 0 {
-			merged.MaxRetries = config.MaxRetries
-		}
-	}
-
-	return &merged
-}
-
+// convertAWSUsage converts AWS TokenUsage to global gollm.Usage (for backwards compatibility)
 func convertAWSUsage(awsUsage any, model, provider string) *gollm.Usage {
 	if awsUsage == nil {
 		return nil
@@ -94,6 +71,18 @@ func convertAWSUsage(awsUsage any, model, provider string) *gollm.Usage {
 	}
 
 	return nil
+}
+
+// convertAWSUsageToBedrock converts AWS TokenUsage to Bedrock-specific Usage
+func convertAWSUsageToBedrock(awsUsage *types.TokenUsage, model string) Usage {
+	return Usage{
+		InputTokens:  int(aws.ToInt32(awsUsage.InputTokens)),
+		OutputTokens: int(aws.ToInt32(awsUsage.OutputTokens)),
+		TotalTokens:  int(aws.ToInt32(awsUsage.TotalTokens)),
+		Model:        model,
+		Provider:     "bedrock",
+		Timestamp:    time.Now(),
+	}
 }
 
 func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (*BedrockClient, error) {
@@ -251,10 +240,10 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 	response := cs.parseConverseOutput(&output.Output)
 	response.usage = output.Usage
 
-	if cs.client.clientOpts.UsageCallback != nil {
-		if structuredUsage := convertAWSUsage(output.Usage, cs.model, "bedrock"); structuredUsage != nil {
-			cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
-		}
+	// Call Bedrock-specific usage callback if configured
+	if cs.client.usageCallback != nil && output.Usage != nil {
+		usage := convertAWSUsageToBedrock(output.Usage, cs.model)
+		cs.client.usageCallback("bedrock", cs.model, usage)
 	}
 
 	cs.addAssistantResponse(response)
@@ -656,10 +645,12 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				if e.Value.Usage != nil {
 					usage = e.Value.Usage
 
-					if cs.client.clientOpts.UsageCallback != nil {
-						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
-							cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
-							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", structuredUsage.TotalTokens)
+					// Call Bedrock-specific usage callback if configured (streaming)
+					if cs.client.usageCallback != nil {
+						if tokenUsage, ok := usage.(*types.TokenUsage); ok {
+							bedrockUsage := convertAWSUsageToBedrock(tokenUsage, cs.model)
+							cs.client.usageCallback("bedrock", cs.model, bedrockUsage)
+							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", bedrockUsage.TotalTokens)
 						}
 					}
 
@@ -707,4 +698,46 @@ func (cs *bedrockChatSession) IsRetryableError(err error) bool {
 	}
 
 	return false
+}
+
+// Extension interface implementation
+func (c *BedrockClient) SetInferenceConfig(config *InferenceConfig) error {
+	if config == nil {
+		return errors.New("inference config cannot be nil")
+	}
+	if err := config.Validate(); err != nil {
+		return fmt.Errorf("invalid inference config: %w", err)
+	}
+
+	c.inferenceConfig = config
+
+	// Apply configuration to internal options
+	if config.Model != "" {
+		c.options.Model = config.Model
+	}
+	if config.Region != "" {
+		c.options.Region = config.Region
+	}
+	if config.Temperature != 0 {
+		c.options.Temperature = config.Temperature
+	}
+	if config.MaxTokens != 0 {
+		c.options.MaxTokens = config.MaxTokens
+	}
+	if config.TopP != 0 {
+		c.options.TopP = config.TopP
+	}
+	if config.MaxRetries != 0 {
+		c.options.MaxRetries = config.MaxRetries
+	}
+
+	return nil
+}
+
+func (c *BedrockClient) GetInferenceConfig() *InferenceConfig {
+	return c.inferenceConfig
+}
+
+func (c *BedrockClient) SetUsageCallback(callback UsageCallback) {
+	c.usageCallback = callback
 }

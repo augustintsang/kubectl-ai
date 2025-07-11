@@ -26,125 +26,187 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMergeWithClientOptions(t *testing.T) {
+// TestConfigurableClientInterface verifies that BedrockClient implements ConfigurableClient
+func TestConfigurableClientInterface(t *testing.T) {
+	// Create a mock client for testing (without AWS credentials)
+	client := &BedrockClient{
+		options: DefaultOptions,
+	}
+
+	// Test type assertion works
+	configurable, ok := (interface{})(client).(ConfigurableClient)
+	require.True(t, ok, "BedrockClient should implement ConfigurableClient")
+
+	// Test configuration setting and retrieval
+	config := &InferenceConfig{
+		Model:       "anthropic.claude-3-sonnet-20240229-v1:0",
+		Region:      "us-west-2",
+		Temperature: 0.7,
+		MaxTokens:   2000,
+		TopP:        0.9,
+		MaxRetries:  3,
+	}
+
+	err := configurable.SetInferenceConfig(config)
+	require.NoError(t, err)
+
+	retrieved := configurable.GetInferenceConfig()
+	assert.Equal(t, config.Model, retrieved.Model)
+	assert.Equal(t, config.Region, retrieved.Region)
+	assert.Equal(t, config.Temperature, retrieved.Temperature)
+	assert.Equal(t, config.MaxTokens, retrieved.MaxTokens)
+	assert.Equal(t, config.TopP, retrieved.TopP)
+	assert.Equal(t, config.MaxRetries, retrieved.MaxRetries)
+
+	// Verify that internal options were updated
+	assert.Equal(t, config.Model, client.options.Model)
+	assert.Equal(t, config.Region, client.options.Region)
+	assert.Equal(t, config.Temperature, client.options.Temperature)
+	assert.Equal(t, config.MaxTokens, client.options.MaxTokens)
+	assert.Equal(t, config.TopP, client.options.TopP)
+	assert.Equal(t, config.MaxRetries, client.options.MaxRetries)
+}
+
+// TestInferenceConfigValidation tests the Validate method
+func TestInferenceConfigValidation(t *testing.T) {
 	tests := []struct {
-		name            string
-		defaults        *BedrockOptions
-		inferenceConfig *gollm.InferenceConfig
-		expectedResult  *BedrockOptions
+		name      string
+		config    *InferenceConfig
+		expectErr bool
 	}{
 		{
-			name: "merge all inference config parameters",
-			defaults: &BedrockOptions{
-				Region:      "us-west-2",
-				Model:       "default-model",
-				MaxTokens:   1000,
-				Temperature: 0.5,
-				TopP:        0.9,
-				MaxRetries:  3,
-			},
-			inferenceConfig: &gollm.InferenceConfig{
-				Model:       "custom-model",
-				Region:      "us-east-1",
+			name: "valid config",
+			config: &InferenceConfig{
 				Temperature: 0.7,
 				MaxTokens:   2000,
-				TopP:        0.95,
-				MaxRetries:  5,
+				TopP:        0.9,
+				TopK:        40,
+				MaxRetries:  3,
 			},
-			expectedResult: &BedrockOptions{
-				Region:      "us-east-1",    // From InferenceConfig
-				Model:       "custom-model", // From InferenceConfig
-				MaxTokens:   2000,           // From InferenceConfig
-				Temperature: 0.7,            // From InferenceConfig
-				TopP:        0.95,           // From InferenceConfig
-				MaxRetries:  5,              // From InferenceConfig
-			},
+			expectErr: false,
 		},
 		{
-			name: "partial inference config overrides",
-			defaults: &BedrockOptions{
-				Region:      "us-west-2",
-				Model:       "default-model",
-				MaxTokens:   1000,
-				Temperature: 0.5,
-				TopP:        0.9,
-				MaxRetries:  3,
+			name: "invalid temperature too low",
+			config: &InferenceConfig{
+				Temperature: -0.1,
 			},
-			inferenceConfig: &gollm.InferenceConfig{
-				Temperature: 0.8,
-				MaxTokens:   1500,
-			},
-			expectedResult: &BedrockOptions{
-				Region:      "us-west-2",     // From defaults
-				Model:       "default-model", // From defaults
-				MaxTokens:   1500,            // From InferenceConfig
-				Temperature: 0.8,             // From InferenceConfig
-				TopP:        0.9,             // From defaults
-				MaxRetries:  3,               // From defaults
-			},
+			expectErr: true,
 		},
 		{
-			name: "nil inference config uses defaults",
-			defaults: &BedrockOptions{
-				Region:      "us-west-2",
-				Model:       "default-model",
-				MaxTokens:   1000,
-				Temperature: 0.5,
-				TopP:        0.9,
-				MaxRetries:  3,
+			name: "invalid temperature too high",
+			config: &InferenceConfig{
+				Temperature: 2.1,
 			},
-			inferenceConfig: nil,
-			expectedResult: &BedrockOptions{
-				Region:      "us-west-2",
-				Model:       "default-model",
-				MaxTokens:   1000,
-				Temperature: 0.5,
-				TopP:        0.9,
-				MaxRetries:  3,
-			},
+			expectErr: true,
 		},
 		{
-			name: "zero values in inference config are ignored",
-			defaults: &BedrockOptions{
-				Region:      "us-west-2",
-				Model:       "default-model",
-				MaxTokens:   1000,
-				Temperature: 0.5,
-				TopP:        0.9,
-				MaxRetries:  3,
+			name: "invalid maxTokens negative",
+			config: &InferenceConfig{
+				MaxTokens: -1,
 			},
-			inferenceConfig: &gollm.InferenceConfig{
-				Model:       "custom-model", // Non-zero value, should override
-				Temperature: 0,              // Zero value, should be ignored
-				MaxTokens:   0,              // Zero value, should be ignored
+			expectErr: true,
+		},
+		{
+			name: "invalid topP too low",
+			config: &InferenceConfig{
+				TopP: -0.1,
 			},
-			expectedResult: &BedrockOptions{
-				Region:      "us-west-2",    // From defaults
-				Model:       "custom-model", // From InferenceConfig
-				MaxTokens:   1000,           // From defaults (InferenceConfig was 0)
-				Temperature: 0.5,            // From defaults (InferenceConfig was 0)
-				TopP:        0.9,            // From defaults
-				MaxRetries:  3,              // From defaults
+			expectErr: true,
+		},
+		{
+			name: "invalid topP too high",
+			config: &InferenceConfig{
+				TopP: 1.1,
 			},
+			expectErr: true,
+		},
+		{
+			name: "invalid topK negative",
+			config: &InferenceConfig{
+				TopK: -1,
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid maxRetries negative",
+			config: &InferenceConfig{
+				MaxRetries: -1,
+			},
+			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clientOpts := gollm.ClientOptions{
-				InferenceConfig: tt.inferenceConfig,
+			err := tt.config.Validate()
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
-
-			result := mergeWithClientOptions(tt.defaults, clientOpts)
-
-			assert.Equal(t, tt.expectedResult.Region, result.Region)
-			assert.Equal(t, tt.expectedResult.Model, result.Model)
-			assert.Equal(t, tt.expectedResult.MaxTokens, result.MaxTokens)
-			assert.Equal(t, tt.expectedResult.Temperature, result.Temperature)
-			assert.Equal(t, tt.expectedResult.TopP, result.TopP)
-			assert.Equal(t, tt.expectedResult.MaxRetries, result.MaxRetries)
 		})
 	}
+}
+
+// TestUsageCallbackWithExtensionInterface tests the new usage callback pattern
+func TestUsageCallbackWithExtensionInterface(t *testing.T) {
+	// Track usage callback invocations
+	var callbackInvocations []struct {
+		provider string
+		model    string
+		usage    Usage
+	}
+
+	usageCallback := func(provider, model string, usage Usage) {
+		callbackInvocations = append(callbackInvocations, struct {
+			provider string
+			model    string
+			usage    Usage
+		}{
+			provider: provider,
+			model:    model,
+			usage:    usage,
+		})
+	}
+
+	// Create mock BedrockClient and configure it via extension interface
+	client := &BedrockClient{
+		options: DefaultOptions,
+	}
+
+	configurable := (interface{})(client).(ConfigurableClient)
+	configurable.SetUsageCallback(usageCallback)
+
+	// Create mock chat session
+	session := &bedrockChatSession{
+		client: client,
+		model:  "test-model",
+	}
+
+	// Simulate AWS usage data and test the callback
+	awsUsage := &types.TokenUsage{
+		InputTokens:  aws.Int32(200),
+		OutputTokens: aws.Int32(100),
+		TotalTokens:  aws.Int32(300),
+	}
+
+	// Test the new callback pattern
+	if client.usageCallback != nil {
+		usage := convertAWSUsageToBedrock(awsUsage, session.model)
+		client.usageCallback("bedrock", session.model, usage)
+	}
+
+	// Verify callback was invoked correctly
+	require.Len(t, callbackInvocations, 1)
+	invocation := callbackInvocations[0]
+
+	assert.Equal(t, "bedrock", invocation.provider)
+	assert.Equal(t, "test-model", invocation.model)
+	assert.Equal(t, 200, invocation.usage.InputTokens)
+	assert.Equal(t, 100, invocation.usage.OutputTokens)
+	assert.Equal(t, 300, invocation.usage.TotalTokens)
+	assert.Equal(t, "test-model", invocation.usage.Model)
+	assert.Equal(t, "bedrock", invocation.usage.Provider)
 }
 
 func TestConvertAWSUsage(t *testing.T) {
@@ -230,66 +292,65 @@ func TestConvertAWSUsage(t *testing.T) {
 	}
 }
 
-func TestUsageCallbackIntegration(t *testing.T) {
-	// Track usage callback invocations
-	var callbackInvocations []struct {
-		provider string
+// TestConvertAWSUsageToBedrock tests the Bedrock-specific usage conversion
+func TestConvertAWSUsageToBedrock(t *testing.T) {
+	tests := []struct {
+		name     string
+		awsUsage *types.TokenUsage
 		model    string
-		usage    gollm.Usage
-	}
-
-	usageCallback := func(provider, model string, usage gollm.Usage) {
-		callbackInvocations = append(callbackInvocations, struct {
-			provider string
-			model    string
-			usage    gollm.Usage
-		}{
-			provider: provider,
-			model:    model,
-			usage:    usage,
-		})
-	}
-
-	// Create mock BedrockClient with usage callback
-	client := &BedrockClient{
-		clientOpts: gollm.ClientOptions{
-			UsageCallback: usageCallback,
+		expected Usage
+	}{
+		{
+			name: "complete token usage conversion",
+			awsUsage: &types.TokenUsage{
+				InputTokens:  aws.Int32(150),
+				OutputTokens: aws.Int32(75),
+				TotalTokens:  aws.Int32(225),
+			},
+			model: "anthropic.claude-3-sonnet",
+			expected: Usage{
+				InputTokens:  150,
+				OutputTokens: 75,
+				TotalTokens:  225,
+				Model:        "anthropic.claude-3-sonnet",
+				Provider:     "bedrock",
+				// Timestamp will be checked separately
+			},
+		},
+		{
+			name: "token usage with nil values",
+			awsUsage: &types.TokenUsage{
+				InputTokens:  aws.Int32(100),
+				OutputTokens: nil, // Nil should become 0
+				TotalTokens:  aws.Int32(100),
+			},
+			model: "test-model",
+			expected: Usage{
+				InputTokens:  100,
+				OutputTokens: 0,
+				TotalTokens:  100,
+				Model:        "test-model",
+				Provider:     "bedrock",
+			},
 		},
 	}
 
-	// Create mock chat session
-	session := &bedrockChatSession{
-		client: client,
-		model:  "test-model",
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertAWSUsageToBedrock(tt.awsUsage, tt.model)
+
+			assert.Equal(t, tt.expected.InputTokens, result.InputTokens)
+			assert.Equal(t, tt.expected.OutputTokens, result.OutputTokens)
+			assert.Equal(t, tt.expected.TotalTokens, result.TotalTokens)
+			assert.Equal(t, tt.expected.Model, result.Model)
+			assert.Equal(t, tt.expected.Provider, result.Provider)
+
+			// Check that timestamp is recent (within last 5 seconds)
+			timeDiff := time.Since(result.Timestamp)
+			assert.True(t, timeDiff < 5*time.Second, "Timestamp should be recent")
+			assert.True(t, timeDiff >= 0, "Timestamp should not be in the future")
+		})
 	}
-
-	// Simulate AWS usage data
-	awsUsage := &types.TokenUsage{
-		InputTokens:  aws.Int32(200),
-		OutputTokens: aws.Int32(100),
-		TotalTokens:  aws.Int32(300),
-	}
-
-	// Test that usage callback is called when sending
-	// Note: We can't easily test the full Send() method without AWS setup,
-	// so we'll test the callback logic directly
-	if client.clientOpts.UsageCallback != nil {
-		if structuredUsage := convertAWSUsage(awsUsage, session.model, "bedrock"); structuredUsage != nil {
-			client.clientOpts.UsageCallback("bedrock", session.model, *structuredUsage)
-		}
-	}
-
-	// Verify callback was invoked correctly
-	require.Len(t, callbackInvocations, 1)
-	invocation := callbackInvocations[0]
-
-	assert.Equal(t, "bedrock", invocation.provider)
-	assert.Equal(t, "test-model", invocation.model)
-	assert.Equal(t, 200, invocation.usage.InputTokens)
-	assert.Equal(t, 100, invocation.usage.OutputTokens)
-	assert.Equal(t, 300, invocation.usage.TotalTokens)
-	assert.Equal(t, "test-model", invocation.usage.Model)
-	assert.Equal(t, "bedrock", invocation.usage.Provider)
 }
 
 func TestBedrockChatResponseUsageMetadata(t *testing.T) {
@@ -370,57 +431,56 @@ func TestBedrockCompletionResponseUsageMetadata(t *testing.T) {
 	assert.Equal(t, "bedrock", usage.Provider)
 }
 
-// Integration test that verifies the full ClientOptions flow
-func TestClientOptionsIntegration(t *testing.T) {
-	// Test that NewBedrockClient properly stores and uses ClientOptions
-	inferenceConfig := &gollm.InferenceConfig{
-		Model:       "test-model",
-		Region:      "us-east-1",
-		Temperature: 0.8,
-		MaxTokens:   2000,
-		TopP:        0.95,
-		MaxRetries:  5,
+// TestExtensionPatternIntegration demonstrates the complete extension pattern usage
+func TestExtensionPatternIntegration(t *testing.T) {
+	// Create mock client for testing (without AWS credentials)
+	client := &BedrockClient{
+		options: DefaultOptions,
 	}
 
-	var callbackCalled bool
-	usageCallback := func(provider, model string, usage gollm.Usage) {
-		callbackCalled = true
+	// Use type assertion to access Bedrock-specific features
+	if bedrockClient, ok := (interface{})(client).(ConfigurableClient); ok {
+		// Configure inference parameters
+		config := &InferenceConfig{
+			Model:       "anthropic.claude-3-5-sonnet-20241022-v2:0",
+			Region:      "us-west-2",
+			Temperature: 0.7,
+			MaxTokens:   4000,
+			TopP:        0.9,
+			MaxRetries:  3,
+		}
+		err := bedrockClient.SetInferenceConfig(config)
+		assert.NoError(t, err)
+
+		// Set usage tracking
+		var capturedUsage []Usage
+		bedrockClient.SetUsageCallback(func(provider, model string, usage Usage) {
+			capturedUsage = append(capturedUsage, usage)
+		})
+
+		// Verify configuration was applied
+		retrievedConfig := bedrockClient.GetInferenceConfig()
+		assert.Equal(t, config.Model, retrievedConfig.Model)
+		assert.Equal(t, config.Temperature, retrievedConfig.Temperature)
+
+		// Test usage callback
+		testUsage := Usage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+			Model:        "test-model",
+			Provider:     "bedrock",
+			Timestamp:    time.Now(),
+		}
+
+		// Simulate usage callback invocation
+		client.usageCallback("bedrock", "test-model", testUsage)
+
+		require.Len(t, capturedUsage, 1)
+		assert.Equal(t, testUsage.TotalTokens, capturedUsage[0].TotalTokens)
+	} else {
+		t.Error("BedrockClient should implement ConfigurableClient interface")
 	}
-
-	clientOpts := gollm.ClientOptions{
-		InferenceConfig: inferenceConfig,
-		UsageCallback:   usageCallback,
-		Debug:           true,
-	}
-
-	// Note: We can't create a real client without AWS credentials,
-	// but we can test the merging logic
-	merged := mergeWithClientOptions(DefaultOptions, clientOpts)
-
-	// Verify inference config was merged correctly
-	assert.Equal(t, "test-model", merged.Model)
-	assert.Equal(t, "us-east-1", merged.Region)
-	assert.Equal(t, float32(0.8), merged.Temperature)
-	assert.Equal(t, int32(2000), merged.MaxTokens)
-	assert.Equal(t, float32(0.95), merged.TopP)
-	assert.Equal(t, 5, merged.MaxRetries)
-
-	// Test client options storage (simulate what NewBedrockClient does)
-	mockClient := &BedrockClient{
-		options:    merged,
-		clientOpts: clientOpts,
-	}
-
-	// Verify clientOpts were stored
-	assert.NotNil(t, mockClient.clientOpts.InferenceConfig)
-	assert.NotNil(t, mockClient.clientOpts.UsageCallback)
-	assert.True(t, mockClient.clientOpts.Debug)
-
-	// Test callback functionality
-	if mockClient.clientOpts.UsageCallback != nil {
-		mockClient.clientOpts.UsageCallback("test", "test", gollm.Usage{})
-	}
-	assert.True(t, callbackCalled)
 }
 
 // TestClientCreationWithTimeout tests that client creation respects timeout and doesn't hang

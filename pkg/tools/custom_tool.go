@@ -21,7 +21,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	"github.com/nirmata/kubectl-ai/gollm"
 	"mvdan.cc/sh/v3/syntax"
 )
 

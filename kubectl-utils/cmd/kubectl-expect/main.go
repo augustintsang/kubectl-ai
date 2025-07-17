@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/kubectl-utils/pkg/kel"
-	"github.com/GoogleCloudPlatform/kubectl-ai/kubectl-utils/pkg/kube"
 	celtypes "github.com/google/cel-go/common/types"
+	"github.com/nirmata/kubectl-ai/kubectl-utils/pkg/kel"
+	"github.com/nirmata/kubectl-ai/kubectl-utils/pkg/kube"
 	"github.com/spf13/pflag"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"

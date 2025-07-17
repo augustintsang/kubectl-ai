@@ -30,12 +30,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/agent"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/journal"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/tools"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/ui"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/ui/html"
+	"github.com/nirmata/kubectl-ai/gollm"
+	"github.com/nirmata/kubectl-ai/pkg/agent"
+	"github.com/nirmata/kubectl-ai/pkg/journal"
+	"github.com/nirmata/kubectl-ai/pkg/tools"
+	"github.com/nirmata/kubectl-ai/pkg/ui"
+	"github.com/nirmata/kubectl-ai/pkg/ui/html"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 

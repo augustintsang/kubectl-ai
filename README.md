@@ -1,8 +1,8 @@
 # kubectl-ai
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/GoogleCloudPlatform/kubectl-ai)](https://goreportcard.com/report/github.com/GoogleCloudPlatform/kubectl-ai)
-![GitHub License](https://img.shields.io/github/license/GoogleCloudPlatform/kubectl-ai)
-[![GitHub stars](https://img.shields.io/github/stars/GoogleCloudPlatform/kubectl-ai.svg)](https://github.com/GoogleCloudPlatform/kubectl-ai/stargazers)
+[![Go Report Card](https://goreportcard.com/badge/github.com/nirmata/kubectl-ai)](https://goreportcard.com/report/github.com/nirmata/kubectl-ai)
+![GitHub License](https://img.shields.io/github/license/nirmata/kubectl-ai)
+[![GitHub stars](https://img.shields.io/github/stars/nirmata/kubectl-ai.svg)](https://github.com/nirmata/kubectl-ai/stargazers)
 
 `kubectl-ai` acts as an intelligent interface, translating user intent into
 precise Kubernetes operations, making Kubernetes management more accessible and
@@ -19,7 +19,7 @@ First, ensure that kubectl is installed and configured.
 #### Quick Install (Linux & MacOS only)
 
 ```shell
-curl -sSL https://raw.githubusercontent.com/GoogleCloudPlatform/kubectl-ai/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/nirmata/kubectl-ai/main/install.sh | bash
 ```
 
 <details>
@@ -28,7 +28,7 @@ curl -sSL https://raw.githubusercontent.com/GoogleCloudPlatform/kubectl-ai/main/
 
 #### Manual Installation (Linux, MacOS and Windows)
 
-1. Download the latest release from the [releases page](https://github.com/GoogleCloudPlatform/kubectl-ai/releases/latest) for your target machine.
+1. Download the latest release from the [releases page](https://github.com/nirmata/kubectl-ai/releases/latest) for your target machine.
 
 2. Untar the release, make the binary executable and move it to a directory in your $PATH (as shown below).
 

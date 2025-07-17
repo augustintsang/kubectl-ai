@@ -34,7 +34,7 @@ for this purpose.
 ## Understand the repo
 
 An AI-generated overview of the system architecture for this repository is
-available [here](https://deepwiki.com/GoogleCloudPlatform/kubectl-ai/). This can
+available [here](https://deepwiki.com/nirmata/kubectl-ai/). This can
 provide an interactive way to explore the codebase.
 
 Quick notes about the various directories:

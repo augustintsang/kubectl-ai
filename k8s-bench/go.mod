@@ -1,10 +1,10 @@
-module github.com/GoogleCloudPlatform/kubectl-ai/k8s-bench
+module github.com/nirmata/kubectl-ai/k8s-bench
 
 go 1.24.0
 
 toolchain go1.24.1
 
-replace github.com/GoogleCloudPlatform/kubectl-ai => ./..
+replace github.com/nirmata/kubectl-ai => ./..
 
 require (
 	k8s.io/klog/v2 v2.130.1

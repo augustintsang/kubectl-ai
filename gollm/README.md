@@ -40,7 +40,7 @@ gollm provides a consistent API for interacting with various LLM providers, maki
 ### Installation
 
 ```bash
-go get github.com/GoogleCloudPlatform/kubectl-ai/gollm
+go get github.com/nirmata/kubectl-ai/gollm
 ```
 
 ### Basic Usage
@@ -53,7 +53,7 @@ import (
     "fmt"
     "log"
     
-    "github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+    "github.com/nirmata/kubectl-ai/gollm"
 )
 
 func main() {

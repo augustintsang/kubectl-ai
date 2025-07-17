@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -152,6 +153,15 @@ func writeToYAMLFile(p string, obj any) error {
 func loadTasks(config EvalConfig) (map[string]Task, error) {
 	tasks := make(map[string]Task)
 
+	var taskFilter *regexp.Regexp
+	if config.TaskPattern != "" {
+		var err error
+		taskFilter, err = regexp.Compile(config.TaskPattern)
+		if err != nil {
+			return nil, fmt.Errorf("compiling task pattern regex %q: %w", config.TaskPattern, err)
+		}
+	}
+
 	entries, err := os.ReadDir(config.TasksDir)
 	if err != nil {
 		return nil, err
@@ -163,7 +173,7 @@ func loadTasks(config EvalConfig) (map[string]Task, error) {
 		}
 
 		taskID := entry.Name()
-		if config.TaskPattern != "" && !strings.Contains(taskID, config.TaskPattern) {
+		if taskFilter != nil && !taskFilter.MatchString(taskID) {
 			continue
 		}
 
@@ -233,12 +243,54 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 	}
 
 	// Run the agent
-	if err := x.runAgent(ctx); err != nil {
+	agentOutput, err := x.runAgent(ctx)
+	if err != nil {
 		// Unexpected error
 		result.Error = err.Error()
 		return result
 	}
 
+	var expectationFailures []model.Failure
+
+	if len(task.Expect) > 0 {
+		// find the output after the last run command and search it
+		var lastCmdOutput string
+		lastToolRunIndex := strings.LastIndex(agentOutput, "Running:")
+		if lastToolRunIndex == -1 {
+			// if no tool run found, parse the entire output
+			lastCmdOutput = agentOutput
+		} else {
+			remaining := agentOutput[lastToolRunIndex:]
+			newlineIndex := strings.Index(remaining, "\n")
+			if newlineIndex != -1 {
+				lastCmdOutput = remaining[newlineIndex+1:]
+			}
+			// if no newline, lastCmdOutput is empty string
+		}
+
+		for _, expect := range task.Expect {
+			if expect.Contains != "" {
+				re, err := regexp.Compile(expect.Contains)
+				if err != nil {
+					expectationFailures = append(expectationFailures, model.Failure{
+						Message: fmt.Sprintf("invalid regex %q in task spec: %v", expect.Contains, err),
+					})
+					continue
+				}
+				if !re.MatchString(lastCmdOutput) {
+					expectationFailures = append(expectationFailures, model.Failure{
+						Message: fmt.Sprintf("regex %q did not match output %q", expect.Contains, lastCmdOutput),
+					})
+				}
+			}
+		}
+
+		if len(expectationFailures) == 0 {
+			fmt.Printf("\nAll output expectations met\n")
+		}
+	}
+
+	verifierSucceeded := false
 	// Run verifier if specified
 	if task.Verifier != "" {
 		verifierPath := filepath.Join(taskDir, task.Verifier)
@@ -248,14 +300,18 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 
 		err := x.runCommand(cmd)
 		if err == nil {
-			result.Result = "success"
-		} else if _, ok := err.(*exec.ExitError); ok {
-			// "Normal" script failure
-			result.Result = "fail"
+			verifierSucceeded = true
 		} else {
-			// Unexpected error
-			result.Error = err.Error()
+			result.AddFailure("verifier script failed")
 		}
+	}
+
+	expectationsMet := len(task.Expect) > 0 && len(expectationFailures) == 0
+	if verifierSucceeded || expectationsMet {
+		result.Result = "success"
+	} else {
+		result.Result = "fail"
+		result.Failures = append(result.Failures, expectationFailures...)
 	}
 
 	return result
@@ -360,7 +416,7 @@ func (x *TaskExecution) runCleanup(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (x *TaskExecution) runAgent(ctx context.Context) error {
+func (x *TaskExecution) runAgent(ctx context.Context) (string, error) {
 	tracePath := filepath.Join(x.taskOutputDir, "trace.yaml")
 
 	args := []string{
@@ -393,36 +449,23 @@ func (x *TaskExecution) runAgent(ctx context.Context) error {
 	go func() {
 		// TODO: Wait for idle between sending steps?
 		for _, step := range x.task.Script {
-			fmt.Fprintf(stdinWriter, "%s\n", step.Prompt)
+			prompt, err := step.ResolvePrompt(x.taskDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error resolving prompt: %v\n", err)
+				x.result.AddFailure("failed to resolve prompt: %v", err)
+				stdinWriter.Close()
+				return
+			}
+			fmt.Fprintf(stdinWriter, "%s\n", prompt)
 		}
 		stdinWriter.Close()
 	}()
 
 	if err := cmd.Run(); err != nil {
-		return err
+		return "", err
 	}
 
-	// check any expectations
-	for _, expect := range x.task.Expect {
-		if expect.Contains != "" {
-			// find the output after the last run command and search it
-			agentOutput := stdoutBuffer.String()
-			lastToolRunIndex := strings.LastIndex(agentOutput, "Running:")
-			lastOutputIndex := strings.Index(agentOutput[lastToolRunIndex:], "\n")
-
-			lastCmdOutput := agentOutput[lastToolRunIndex+lastOutputIndex+1:]
-			if lastToolRunIndex == -1 {
-				// if no tool run found, parse the entire output
-				lastCmdOutput = agentOutput
-			}
-			if !strings.Contains(lastCmdOutput, expect.Contains) {
-				x.result.AddFailure("expected value %q not found in output %q", expect.Contains, lastCmdOutput)
-				return fmt.Errorf("expected value %q not found in agent output", expect.Contains)
-			}
-		}
-	}
-
-	return nil
+	return stdoutBuffer.String(), nil
 }
 
 func (x *TaskExecution) runCommand(cmd *exec.Cmd) error {

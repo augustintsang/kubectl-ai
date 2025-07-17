@@ -47,6 +47,7 @@ func TestKubectlModifiesResource(t *testing.T) {
 			{"Logs with follow", "kubectl logs nginx -f", "no"},
 			{"Watch pods", "kubectl get pods --watch", "no"},
 			{"Watch pods short", "kubectl get pods -w", "no"},
+			{"Rollout status", "kubectl rollout status deployment nginx", "no"},
 			{"Diff", "kubectl diff -f deployment.yaml", "no"},
 			{"Can-i", "kubectl auth can-i create pods", "no"},
 			{"Kustomize", "kubectl kustomize ./", "no"},
@@ -134,6 +135,7 @@ func TestKubectlModifiesResource(t *testing.T) {
 			{"Proxy command", "kubectl proxy --port=8080", "no"},
 			{"Attach command", "kubectl attach mypod -i", "yes"},
 			{"Copy files", "kubectl cp mypod:/tmp/foo /tmp/bar", "yes"},
+			{"Rollout status with flags", "kubectl rollout --recursive=false status --timeout=0s deployment -w nginx", "no"},
 		},
 	}
 
@@ -154,24 +156,33 @@ func TestKubectlModifiesResource(t *testing.T) {
 
 // TestKubectlAnalyzerComponents tests the internal helper functions used by KubectlModifiesResource
 func TestKubectlAnalyzerComponents(t *testing.T) {
-	t.Run("hasDryRunFlag detection", func(t *testing.T) {
+	t.Run("parseKubectlArgs detection", func(t *testing.T) {
 		tests := []struct {
-			command  string
-			expected bool
+			command           string
+			verbExpected      string
+			subverbExpected   string
+			hasDryRunExpected bool
 		}{
-			{"kubectl apply -f deploy.yaml --dry-run=client", true},
-			{"kubectl apply -f deploy.yaml --dry-run", true},
-			{"kubectl delete pod nginx --dry-run client", true},
-			{"kubectl delete pod nginx --dry-run=server", true},
-			{"kubectl apply -f deploy.yaml", false},
-			{"kubectl get pods --dry", false}, // Not a valid dry-run flag
-			{"echo --dry-run", true},          // The current implementation doesn't check if it's kubectl
+			{"kubectl apply -f deploy.yaml --dry-run=client", "apply", "deploy.yaml", true},
+			{"kubectl apply -f deploy.yaml --dry-run", "apply", "deploy.yaml", true},
+			{"kubectl delete pod nginx --dry-run client", "delete", "pod", true},
+			{"kubectl delete pod nginx --dry-run=server", "delete", "pod", true},
+			{"kubectl apply -f deploy.yaml", "apply", "deploy.yaml", false},
+			{"kubectl get pods --dry", "get", "pods", false}, // Not a valid dry-run flag
+			{"echo --dry-run", "", "", true},                 // The current implementation doesn't check if it's kubectl
+			{"kubectl rollout status deployment nginx", "rollout", "status", false},
 		}
 
 		for _, tt := range tests {
-			result := hasDryRunFlag(tt.command)
-			if result != tt.expected {
-				t.Errorf("hasDryRunFlag(%q) = %v, want %v", tt.command, result, tt.expected)
+			verb, subVerb, hasDryRun := parseKubectlArgs(strings.Split(tt.command, " ")[1:]) // Skip the first arg (kubectl)
+			if verb != tt.verbExpected {
+				t.Errorf("parseKubectlArgs(%q) verb = %q, want %q", tt.command, verb, tt.verbExpected)
+			}
+			if subVerb != tt.subverbExpected {
+				t.Errorf("parseKubectlArgs(%q) subVerb = %q, want %q", tt.command, subVerb, tt.subverbExpected)
+			}
+			if hasDryRun != tt.hasDryRunExpected {
+				t.Errorf("parseKubectlArgs(%q) hasDryRun = %v, want %v", tt.command, hasDryRun, tt.hasDryRunExpected)
 			}
 		}
 	})
@@ -234,7 +245,23 @@ func TestKubectlCommandParsing(t *testing.T) {
 		// Complex scenarios
 		{"long path", "/very/long/path/to/kubectl get pods", "no", "very long path"},
 		{"flags before verb", "kubectl --context=prod --namespace=app get pods", "no", "global flags before verb"},
+		{"flags before verb mutating", "kubectl --replicas=3 scale deployment/nginx-deployment", "yes", "global flags before verb mutating"},
+		{"flags before verb without equals", "kubectl --context prod --namespace app get pods", "unknown", "global flags before verb without equals"},
 		{"no verb", "kubectl --help", "unknown", "kubectl with only flags"},
+		{"boolean flag before verb", "kubectl --verbose get pods", "unknown", "boolean flag before verb"},
+		{"boolean flag before verb mutating", "kubectl --force delete pod nginx", "unknown", "boolean flag before verb mutating"},
+		{"mixed flags before verb", "kubectl --context=prod --namespace app get pods", "unknown", "mixed non-spaced and spaced flags before verb"},
+		{"non-spaced key-value before verb non-mutating", "kubectl --namespace=default get pods", "no", "non-spaced key-value before verb non-mutating"},
+		{"non-spaced key-value before verb mutating", "kubectl --namespace=default delete pod nginx", "yes", "non-spaced key-value before verb mutating"},
+		{"flag after verb spaced", "kubectl get pods --context prod", "no", "spaced key-value flag after verb"},
+		{"flag after verb boolean", "kubectl get pods --verbose", "no", "boolean flag after verb"},
+		{"flag after verb mutating", "kubectl delete pod nginx --force", "yes", "boolean flag after verb mutating"},
+		{"flag with equals empty value before verb", "kubectl --namespace= get pods", "no", "non-spaced key-value with empty value before verb"},
+		{"unexpected arg before verb", "kubectl something get pods", "unknown", "unexpected arg before verb"},
+		{"multiple boolean flags before verb", "kubectl --verbose --debug get pods", "unknown", "multiple boolean flags before verb"},
+		{"multiple spaced flags before verb", "kubectl --context prod --namespace app get pods", "unknown", "multiple spaced flags before verb"},
+		{"multiple non-spaced flags before verb mutating", "kubectl --namespace=default --force=true delete pod nginx", "yes", "multiple non-spaced flags before verb mutating"},
+		{"multiple non-spaced flags before verb non-mutating", "kubectl --namespace=default --verbose=true get pods", "no", "multiple non-spaced flags before verb non-mutating"},
 
 		// Dry run scenarios
 		{"dry run create", "/usr/bin/kubectl create -f pod.yaml --dry-run=client", "no", "dry run with path"},

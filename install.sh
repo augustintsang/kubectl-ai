@@ -9,7 +9,7 @@ for cmd in curl tar; do
   fi
 done
 
-REPO="GoogleCloudPlatform/kubectl-ai"
+REPO="nirmata/kubectl-ai"
 BINARY="kubectl-ai"
 
 # Detect OS
@@ -19,7 +19,7 @@ case "$sysOS" in
   darwin)  OS="Darwin" ;;
   *)
     echo "If you are on Windows or another unsupported OS, please follow the manual installation instructions at:"
-    echo "https://github.com/GoogleCloudPlatform/kubectl-ai#manual-installation-linux-macos-and-windows"
+    echo "https://github.com/nirmata/kubectl-ai#manual-installation-linux-macos-and-windows"
     exit 1
     ;;
 esac
@@ -29,7 +29,7 @@ nixos_check="$(grep "ID=nixos" /etc/os-release 2>/dev/null || echo "no-match")"
 case "$nixos_check" in
   *nixos*)
     echo "NixOS detected, please follow the manual installation instructions at:"
-    echo "https://github.com/GoogleCloudPlatform/kubectl-ai#install-on-nixos"
+    echo "https://github.com/nirmata/kubectl-ai#install-on-nixos"
     exit 1
     ;;
 esac
@@ -41,7 +41,7 @@ case "$ARCH" in
   arm64|aarch64) ARCH="arm64" ;;
   *)
     echo "If you are on an unsupported architecture, please follow the manual installation instructions at:"
-    echo "https://github.com/GoogleCloudPlatform/kubectl-ai#manual-installation-linux-macos-and-windows"
+    echo "https://github.com/nirmata/kubectl-ai#manual-installation-linux-macos-and-windows"
     exit 1
     ;;
 esac

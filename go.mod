@@ -1,14 +1,13 @@
-module github.com/augustintsang/kubectl-ai
+module github.com/nirmata/kubectl-ai
 
 go 1.24.0
 
 toolchain go1.24.3
 
 // Needed for multiple go modules in one repo
-replace github.com/GoogleCloudPlatform/kubectl-ai/gollm => ./gollm
+replace github.com/nirmata/kubectl-ai/gollm => ./gollm
 
 require (
-	github.com/GoogleCloudPlatform/kubectl-ai/gollm v0.0.0-00010101000000-000000000000
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.5
 	github.com/charmbracelet/glamour v0.10.0
@@ -16,6 +15,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v0.31.0
+	github.com/nirmata/kubectl-ai/gollm v0.0.0-00010101000000-000000000000
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6
 	golang.org/x/sync v0.13.0

@@ -25,11 +25,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/agent"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/journal"
 	"github.com/charmbracelet/glamour"
 	"github.com/chzyer/readline"
+	"github.com/nirmata/kubectl-ai/pkg/agent"
+	"github.com/nirmata/kubectl-ai/pkg/api"
+	"github.com/nirmata/kubectl-ai/pkg/journal"
 	"golang.org/x/term"
 	"k8s.io/klog/v2"
 )

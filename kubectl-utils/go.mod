@@ -1,4 +1,4 @@
-module github.com/GoogleCloudPlatform/kubectl-ai/kubectl-utils
+module github.com/nirmata/kubectl-ai/kubectl-utils
 
 go 1.24.0
 

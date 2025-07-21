@@ -1,4 +1,4 @@
-module github.com/augustintsang/kubectl-ai/gollm
+module github.com/nirmata/kubectl-ai/gollm
 
 go 1.24.0
 

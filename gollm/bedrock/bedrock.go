@@ -34,6 +34,8 @@ type BedrockClient struct {
 	bedrockClient *bedrock.Client
 	options       *BedrockOptions
 	clientOpts    gollm.ClientOptions
+	usageCallback UsageCallback
+	debug         bool
 }
 
 var _ gollm.Client = &BedrockClient{}
@@ -52,8 +54,9 @@ func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockCl
 func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) *BedrockOptions {
 	merged := *defaults
 
-	if opts.InferenceConfig != nil {
-		config := opts.InferenceConfig
+	// Use bedrock-specific configuration from package variables
+	if currentInferenceConfig != nil {
+		config := currentInferenceConfig
 		if config.Model != "" {
 			merged.Model = config.Model
 		}
@@ -77,13 +80,13 @@ func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) 
 	return &merged
 }
 
-func convertAWSUsage(awsUsage any, model, provider string) *gollm.Usage {
+func convertAWSUsage(awsUsage any, model, provider string) *Usage {
 	if awsUsage == nil {
 		return nil
 	}
 
 	if usage, ok := awsUsage.(*types.TokenUsage); ok {
-		return &gollm.Usage{
+		return &Usage{
 			InputTokens:  int(aws.ToInt32(usage.InputTokens)),
 			OutputTokens: int(aws.ToInt32(usage.OutputTokens)),
 			TotalTokens:  int(aws.ToInt32(usage.TotalTokens)),
@@ -136,6 +139,8 @@ func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (
 		runtimeClient: bedrockruntime.NewFromConfig(cfg),
 		bedrockClient: bedrock.NewFromConfig(cfg),
 		options:       options,
+		usageCallback: currentUsageCallback,
+		debug:         currentDebug,
 	}, nil
 }
 
@@ -251,9 +256,9 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 	response := cs.parseConverseOutput(&output.Output)
 	response.usage = output.Usage
 
-	if cs.client.clientOpts.UsageCallback != nil {
+	if cs.client.usageCallback != nil {
 		if structuredUsage := convertAWSUsage(output.Usage, cs.model, "bedrock"); structuredUsage != nil {
-			cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
+			cs.client.usageCallback("bedrock", cs.model, *structuredUsage)
 		}
 	}
 
@@ -656,9 +661,9 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				if e.Value.Usage != nil {
 					usage = e.Value.Usage
 
-					if cs.client.clientOpts.UsageCallback != nil {
+					if cs.client.usageCallback != nil {
 						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
-							cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
+							cs.client.usageCallback("bedrock", cs.model, *structuredUsage)
 							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", structuredUsage.TotalTokens)
 						}
 					}
@@ -707,4 +712,32 @@ func (cs *bedrockChatSession) IsRetryableError(err error) bool {
 	}
 
 	return false
+}
+
+// Package-level configuration variables for bedrock-specific options
+var (
+	currentInferenceConfig *InferenceConfig
+	currentUsageCallback   UsageCallback
+	currentDebug           bool
+)
+
+// WithInferenceConfig creates a bedrock-specific client option for inference configuration
+func WithInferenceConfig(config *InferenceConfig) gollm.Option {
+	return func(clientOpts *gollm.ClientOptions) {
+		currentInferenceConfig = config
+	}
+}
+
+// WithUsageCallback creates a bedrock-specific client option for usage callbacks
+func WithUsageCallback(callback UsageCallback) gollm.Option {
+	return func(clientOpts *gollm.ClientOptions) {
+		currentUsageCallback = callback
+	}
+}
+
+// WithDebug creates a bedrock-specific client option for debug logging
+func WithDebug(debug bool) gollm.Option {
+	return func(clientOpts *gollm.ClientOptions) {
+		currentDebug = debug
+	}
 }

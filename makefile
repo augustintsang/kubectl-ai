@@ -155,3 +155,24 @@ test-coverage: ## Run tests with coverage and generate HTML report
 	@echo "λ Generating coverage HTML report..."
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
+
+# --- Bedrock-specific Testing ---
+test-bedrock-unit: ## Run bedrock unit tests only
+	@echo "λ Running bedrock unit tests..."
+	cd gollm/bedrock && go test -v -tags="" ./... -run="^Test[^I][^n][^t]"
+
+test-bedrock-integration: ## Run bedrock integration tests (requires AWS credentials)
+	@echo "λ Running bedrock integration tests..."
+	cd gollm/bedrock && go test -v -tags="integration" ./... -run="TestIntegration"
+
+test-bedrock-e2e: build ## Run bedrock end-to-end tests (requires AWS credentials)
+	@echo "λ Running bedrock end-to-end tests..."
+	cd gollm/bedrock && go test -v -tags="e2e" ./... -run="TestE2E"
+
+test-bedrock-credentials: ## Run bedrock credential scenario tests (requires AWS credentials)
+	@echo "λ Running bedrock credential tests..."
+	cd gollm/bedrock && go test -v -tags="integration" ./... -run="TestCredential"
+
+test-bedrock-all: build ## Run all bedrock tests (unit + integration + e2e + credentials)
+	@echo "λ Running all bedrock tests..."
+	cd gollm/bedrock && ./test_runner.sh --all

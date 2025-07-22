@@ -16,18 +16,6 @@ package bedrock
 
 import "time"
 
-// InferenceConfig holds bedrock-specific inference configuration
-type InferenceConfig struct {
-	Model         string        `json:"model,omitempty"`
-	Region        string        `json:"region,omitempty"`
-	Temperature   float32       `json:"temperature,omitempty"`
-	MaxTokens     int32         `json:"maxTokens,omitempty"`
-	TopP          float32       `json:"topP,omitempty"`
-	MaxRetries    int           `json:"maxRetries,omitempty"`
-	Timeout       time.Duration `json:"timeout,omitempty"`
-	StopSequences []string      `json:"stopSequences,omitempty"`
-}
-
 // Usage represents token usage information for bedrock
 type Usage struct {
 	InputTokens  int       `json:"inputTokens"`
@@ -37,6 +25,3 @@ type Usage struct {
 	Provider     string    `json:"provider"`
 	Timestamp    time.Time `json:"timestamp"`
 }
-
-// UsageCallback is the function signature for usage tracking callbacks
-type UsageCallback func(provider, model string, usage Usage)

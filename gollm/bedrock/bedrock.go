@@ -1,3 +1,17 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package bedrock
 
 import (
@@ -5,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -18,7 +33,16 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Package-level env var storage - follows OpenAI pattern but leverages AWS SDK standards
+var (
+	bedrockModel string
+)
+
 func init() {
+	// Load Bedrock-specific environment variables
+	// Note: AWS_REGION is handled by AWS SDK automatically
+	bedrockModel = os.Getenv("BEDROCK_MODEL")
+
 	if err := gollm.RegisterProvider("bedrock", newBedrockClientFactory); err != nil {
 		klog.Fatalf("Failed to register bedrock provider: %v", err)
 	}
@@ -34,15 +58,21 @@ type BedrockClient struct {
 	bedrockClient *bedrock.Client
 	options       *BedrockOptions
 	clientOpts    gollm.ClientOptions
-	usageCallback UsageCallback
-	debug         bool
 }
 
 var _ gollm.Client = &BedrockClient{}
 
 func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockClient, error) {
-	options := mergeWithClientOptions(DefaultOptions, opts)
-	client, err := NewBedrockClientWithOptions(ctx, options)
+	// Start with defaults - AWS SDK will handle region from environment
+	options := *DefaultOptions
+
+	// Apply model override if set via environment variable
+	if bedrockModel != "" {
+		options.Model = bedrockModel
+	}
+
+	// Create client with simplified options (AWS SDK handles credentials/region)
+	client, err := NewBedrockClientWithOptions(ctx, &options)
 	if err != nil {
 		return nil, err
 	}
@@ -51,33 +81,23 @@ func NewBedrockClient(ctx context.Context, opts gollm.ClientOptions) (*BedrockCl
 	return client, nil
 }
 
-func mergeWithClientOptions(defaults *BedrockOptions, opts gollm.ClientOptions) *BedrockOptions {
-	merged := *defaults
-
-	// Use bedrock-specific configuration from package variables
-	if currentInferenceConfig != nil {
-		config := currentInferenceConfig
-		if config.Model != "" {
-			merged.Model = config.Model
-		}
-		if config.Region != "" {
-			merged.Region = config.Region
-		}
-		if config.Temperature != 0 {
-			merged.Temperature = config.Temperature
-		}
-		if config.MaxTokens != 0 {
-			merged.MaxTokens = config.MaxTokens
-		}
-		if config.TopP != 0 {
-			merged.TopP = config.TopP
-		}
-		if config.MaxRetries != 0 {
-			merged.MaxRetries = config.MaxRetries
-		}
+// getBedrockModel returns the model to use, checking in order:
+// 1. Explicitly provided model
+// 2. Environment variable BEDROCK_MODEL
+// 3. Default model
+func getBedrockModel(model string) string {
+	if model != "" {
+		klog.V(2).Infof("Using explicitly provided model: %s", model)
+		return model
 	}
 
-	return &merged
+	if bedrockModel != "" {
+		klog.V(1).Infof("Using model from environment variable: %s", bedrockModel)
+		return bedrockModel
+	}
+
+	klog.V(1).Infof("Using default model: %s", DefaultOptions.Model)
+	return DefaultOptions.Model
 }
 
 func convertAWSUsage(awsUsage any, model, provider string) *Usage {
@@ -126,7 +146,6 @@ func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (
 
 	cfg, err := config.LoadDefaultConfig(configCtx, configOptions...)
 	if err != nil {
-		// Check if the error was due to context timeout
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, fmt.Errorf("%s: AWS configuration loading timed out after %v - this usually indicates credential or network issues. Please check your AWS credentials and network connectivity: %w", ErrMsgConfigLoad, configTimeout, err)
 		}
@@ -139,8 +158,6 @@ func NewBedrockClientWithOptions(ctx context.Context, options *BedrockOptions) (
 		runtimeClient: bedrockruntime.NewFromConfig(cfg),
 		bedrockClient: bedrock.NewFromConfig(cfg),
 		options:       options,
-		usageCallback: currentUsageCallback,
-		debug:         currentDebug,
 	}, nil
 }
 
@@ -150,21 +167,7 @@ func (c *BedrockClient) Close() error {
 }
 
 func (c *BedrockClient) StartChat(systemPrompt, model string) gollm.Chat {
-	selectedModel := model
-	if selectedModel == "" {
-		selectedModel = c.options.Model
-	}
-
-	if !isModelSupported(selectedModel) {
-		klog.Errorf("Unsupported model requested: %s, falling back to default: %s", selectedModel, c.options.Model)
-		return &bedrockChatSession{
-			client:       c,
-			systemPrompt: systemPrompt,
-			model:        c.options.Model,
-			history:      make([]types.Message, 0),
-			functionDefs: make([]*gollm.FunctionDefinition, 0),
-		}
-	}
+	selectedModel := getBedrockModel(model)
 
 	klog.V(1).Infof("Starting chat session with model: %s", selectedModel)
 
@@ -180,10 +183,7 @@ func (c *BedrockClient) StartChat(systemPrompt, model string) gollm.Chat {
 func (c *BedrockClient) GenerateCompletion(ctx context.Context, req *gollm.CompletionRequest) (gollm.CompletionResponse, error) {
 	klog.V(1).Infof("GenerateCompletion called with model: %s", req.Model)
 
-	model := req.Model
-	if model == "" {
-		model = c.options.Model
-	}
+	model := getBedrockModel(req.Model)
 
 	if !isModelSupported(model) {
 		return nil, fmt.Errorf("%s: %s", ErrMsgUnsupportedModel, model)
@@ -255,12 +255,6 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 
 	response := cs.parseConverseOutput(&output.Output)
 	response.usage = output.Usage
-
-	if cs.client.usageCallback != nil {
-		if structuredUsage := convertAWSUsage(output.Usage, cs.model, "bedrock"); structuredUsage != nil {
-			cs.client.usageCallback("bedrock", cs.model, *structuredUsage)
-		}
-	}
 
 	cs.addAssistantResponse(response)
 
@@ -661,13 +655,6 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				if e.Value.Usage != nil {
 					usage = e.Value.Usage
 
-					if cs.client.usageCallback != nil {
-						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
-							cs.client.usageCallback("bedrock", cs.model, *structuredUsage)
-							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", structuredUsage.TotalTokens)
-						}
-					}
-
 					finalResponse := &bedrockChatResponse{
 						content:   "",
 						usage:     usage,
@@ -712,32 +699,4 @@ func (cs *bedrockChatSession) IsRetryableError(err error) bool {
 	}
 
 	return false
-}
-
-// Package-level configuration variables for bedrock-specific options
-var (
-	currentInferenceConfig *InferenceConfig
-	currentUsageCallback   UsageCallback
-	currentDebug           bool
-)
-
-// WithInferenceConfig creates a bedrock-specific client option for inference configuration
-func WithInferenceConfig(config *InferenceConfig) gollm.Option {
-	return func(clientOpts *gollm.ClientOptions) {
-		currentInferenceConfig = config
-	}
-}
-
-// WithUsageCallback creates a bedrock-specific client option for usage callbacks
-func WithUsageCallback(callback UsageCallback) gollm.Option {
-	return func(clientOpts *gollm.ClientOptions) {
-		currentUsageCallback = callback
-	}
-}
-
-// WithDebug creates a bedrock-specific client option for debug logging
-func WithDebug(debug bool) gollm.Option {
-	return func(clientOpts *gollm.ClientOptions) {
-		currentDebug = debug
-	}
 }

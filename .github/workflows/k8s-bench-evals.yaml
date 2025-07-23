@@ -25,6 +25,7 @@ on:
 
 jobs:
   run-eval:
+    if: github.repository == 'GoogleCloudPlatform/kubectl-ai'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

@@ -1,129 +1,76 @@
 # AWS Bedrock Provider
 
-This document covers the AWS Bedrock provider for kubectl-ai, which enables AI-powered Kubernetes operations using Claude and Nova models via AWS Bedrock.
+kubectl-ai supports AWS Bedrock models including Claude Sonnet 4 and Claude 3.7.
 
-## Configuration
+## Setup
 
-### Environment Variables
+### AWS Credentials
 
-The Bedrock provider uses standard AWS environment variables plus one Bedrock-specific variable:
+Configure AWS credentials using standard AWS SDK methods:
 
 ```bash
-# AWS SDK Standard Variables (handled automatically by AWS SDK)
-AWS_REGION=us-east-1                    # Primary Bedrock region
-AWS_PROFILE=bedrock-profile             # AWS credentials profile
-AWS_ACCESS_KEY_ID=your-access-key       # Direct credentials (not recommended)
-AWS_SECRET_ACCESS_KEY=your-secret-key   # Direct credentials (not recommended)
+# Option 1: Environment variables
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+export AWS_REGION="us-east-1"
 
-# Bedrock-Specific Configuration
-BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0  # Default model
+# Option 2: AWS Profile (recommended)
+export AWS_PROFILE="your-profile-name"
+export AWS_REGION="us-east-1"
+
+# Option 3: Use IAM roles (on EC2/ECS/Lambda)
+export AWS_REGION="us-east-1"
 ```
 
-### Supported Model IDs (Inference Profiles)
+### Model Configuration
 
-This implementation uses AWS Bedrock inference profiles for cross-region reliability:
+```bash
+# Optional: Set default model
+export BEDROCK_MODEL="us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+```
 
-**Claude Models**:
-- `us.anthropic.claude-sonnet-4-20250514-v1:0` (default, latest Claude Sonnet)
-- `us.anthropic.claude-3-7-sonnet-20250219-v1:0`
+## Supported Models
 
-**Nova Models**:
-- `us.amazon.nova-pro-v1:0`
-- `us.amazon.nova-lite-v1:0`
-- `us.amazon.nova-micro-v1:0`
+See [AWS Bedrock documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html) for current model availability and regional support.
 
-For the most current model availability, refer to the [AWS Bedrock User Guide](https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html).
+Currently supported:
+- Claude Sonnet 4: `us.anthropic.claude-sonnet-4-20250514-v1:0` (default)
+- Claude 3.7 Sonnet: `us.anthropic.claude-3-7-sonnet-20250219-v1:0`
+
+## Usage
+
+```bash
+# Use default model (Claude Sonnet 4)
+kubectl-ai --provider bedrock "explain this deployment"
+
+# Specify model explicitly
+kubectl-ai --provider bedrock --model us.anthropic.claude-3-7-sonnet-20250219-v1:0 "help me debug this pod"
+```
 
 ## Authentication
 
-### Recommended Approach
+kubectl-ai uses the standard AWS SDK credential provider chain:
 
-Use AWS Identity Center or IAM roles rather than access keys:
+1. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+2. AWS credentials file (~/.aws/credentials)
+3. AWS config file (~/.aws/config)
+4. IAM roles for EC2 instances
+5. IAM roles for ECS tasks
+6. IAM roles for Lambda functions
 
-```bash
-# Configure AWS Profile
-aws configure sso --profile bedrock-production
+For more details, see [AWS SDK Go Configuration](https://aws.github.io/aws-sdk-go-v2/docs/configuring-sdk/).
 
-# Use the profile
-export AWS_PROFILE=bedrock-production
-export AWS_REGION=us-east-1
-```
+## Region Configuration
 
-### IAM Permissions
-
-Ensure your AWS credentials have the `AmazonBedrockFullAccess` managed policy or equivalent permissions:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "bedrock:InvokeModel",
-                "bedrock:InvokeModelWithResponseStream"
-            ],
-            "Resource": "*"
-        }
-    ]
-}
-```
-
-## Usage Examples
-
-### Basic Usage
+Bedrock is available in specific AWS regions. Set your region using:
 
 ```bash
-export AWS_REGION=us-east-1
-export BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0
-kubectl-ai "explain this pod"
+export AWS_REGION="us-east-1"  # Primary Bedrock region
 ```
 
-### Production Configuration
+Alternatively, configure region in `~/.aws/config`:
 
-```bash
-# Use AWS Profile (recommended)
-export AWS_PROFILE=bedrock-production
-export AWS_REGION=us-east-1
-
-# Optional: Override default model
-export BEDROCK_MODEL=us.amazon.nova-pro-v1:0
-
-# AWS SDK retry configuration
-export AWS_MAX_ATTEMPTS=3
-export AWS_RETRY_MODE=adaptive
-
-kubectl-ai "help me debug this deployment"
-```
-
-### IAM Role (EC2/EKS)
-
-```bash
-# No environment variables needed when using IAM roles
-# AWS SDK automatically uses instance/pod credentials
-kubectl-ai "analyze this deployment"
-```
-
-## Configuration Notes
-
-- **Region**: AWS recommends `us-east-1` as the primary Bedrock region
-- **Authentication**: AWS SDK handles the credential chain automatically (environment → credentials file → IAM roles)
-- **Retry Logic**: AWS SDK provides built-in retry logic and timeout handling
-- **Model Access**: Models must be enabled in the AWS Bedrock console before use
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Model not available**: Verify the model is enabled in your AWS region via the Bedrock console
-2. **Authentication errors**: Check AWS credentials and IAM permissions
-3. **Region issues**: Ensure the specified region supports Bedrock and your desired models
-4. **Rate limits**: AWS Bedrock has service quotas; consider using `AWS_RETRY_MODE=adaptive`
-
-### Debug Information
-
-kubectl-ai uses standard klog for logging. Increase verbosity to see detailed provider information:
-
-```bash
-kubectl-ai -v=2 "your query"
+```ini
+[default]
+region = us-east-1
 ```

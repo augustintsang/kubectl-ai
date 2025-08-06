@@ -88,11 +88,13 @@ func (c *BedrockClient) StartChat(systemPrompt, model string) Chat {
 	enhancedPrompt := systemPrompt
 	if strings.Contains(systemPrompt, "```json") && strings.Contains(systemPrompt, "\"action\"") {
 		// Tool-use shim is enabled - add stronger JSON formatting instructions for all Bedrock models
-		enhancedPrompt += "\n\nIMPORTANT FORMATTING REQUIREMENT:\n"
-		enhancedPrompt += "You MUST ALWAYS wrap your JSON responses in ```json code blocks exactly as shown in the examples above.\n"
-		enhancedPrompt += "NEVER respond with raw JSON without the markdown ```json formatting.\n"
-		enhancedPrompt += "This is critical for proper parsing. Example format:\n"
-		enhancedPrompt += "```json\n{\"thought\": \"your reasoning\", \"action\": {\"name\": \"tool_name\", \"command\": \"command\"}}\n```"
+		enhancedPrompt += "\n\nCRITICAL JSON FORMATTING REQUIREMENTS:\n"
+		enhancedPrompt += "1. You MUST ALWAYS wrap your JSON responses in ```json code blocks exactly as shown in the examples above.\n"
+		enhancedPrompt += "2. NEVER respond with raw JSON without the markdown ```json formatting.\n"
+		enhancedPrompt += "3. Ensure your JSON is syntactically correct with proper commas between fields.\n"
+		enhancedPrompt += "4. This is critical for proper parsing. Example format:\n"
+		enhancedPrompt += "```json\n{\"thought\": \"your reasoning\", \"action\": {\"name\": \"tool_name\", \"command\": \"command\"}}\n```\n"
+		enhancedPrompt += "Note the comma after the \"thought\" field! Malformed JSON will cause failures."
 
 		klog.V(2).Infof("Enhanced Bedrock prompt with JSON formatting instructions for model: %s", selectedModel)
 	}

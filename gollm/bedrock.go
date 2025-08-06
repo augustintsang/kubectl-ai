@@ -83,9 +83,23 @@ func (c *BedrockClient) StartChat(systemPrompt, model string) Chat {
 
 	klog.V(1).Infof("Starting new Bedrock chat session with model: %s", selectedModel)
 
+	// Enhance system prompt for tool-use shim compatibility
+	// Detect if tool-use shim is enabled by looking for JSON formatting instructions
+	enhancedPrompt := systemPrompt
+	if strings.Contains(systemPrompt, "```json") && strings.Contains(systemPrompt, "\"action\"") {
+		// Tool-use shim is enabled - add stronger JSON formatting instructions for all Bedrock models
+		enhancedPrompt += "\n\nIMPORTANT FORMATTING REQUIREMENT:\n"
+		enhancedPrompt += "You MUST ALWAYS wrap your JSON responses in ```json code blocks exactly as shown in the examples above.\n"
+		enhancedPrompt += "NEVER respond with raw JSON without the markdown ```json formatting.\n"
+		enhancedPrompt += "This is critical for proper parsing. Example format:\n"
+		enhancedPrompt += "```json\n{\"thought\": \"your reasoning\", \"action\": {\"name\": \"tool_name\", \"command\": \"command\"}}\n```"
+
+		klog.V(2).Infof("Enhanced Bedrock prompt with JSON formatting instructions for model: %s", selectedModel)
+	}
+
 	return &bedrockChat{
 		client:       c,
-		systemPrompt: systemPrompt,
+		systemPrompt: enhancedPrompt,
 		model:        selectedModel,
 		messages:     []types.Message{},
 	}

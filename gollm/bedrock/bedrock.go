@@ -607,7 +607,6 @@ func (cs *bedrockChatSession) parseConverseOutput(output *types.ConverseOutput) 
 
 		if len(message.Content) > 0 {
 			var contentParts []string
-			var toolUseCount, textCount int
 			for i, content := range message.Content {
 				switch c := content.(type) {
 				case *types.ContentBlockMemberText:

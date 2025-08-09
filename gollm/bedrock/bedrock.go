@@ -269,13 +269,13 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 	} else {
 		klog.V(2).Info("Sending Converse request with no tools")
 	}
-	
+
 	klog.V(2).Infof("Sending Converse request for model: %s with %d messages in history", cs.model, len(cs.history))
 
 	output, err := cs.client.runtimeClient.Converse(ctx, input)
 	if err != nil {
 		cs.removeLastMessage()
-		return nil, fmt.Errorf("Converse API failed: %w", err)
+		return nil, fmt.Errorf("converse API failed: %w", err)
 	}
 
 	response := cs.parseConverseOutput(&output.Output)
@@ -304,16 +304,14 @@ func (cs *bedrockChatSession) SendStreaming(ctx context.Context, contents ...any
 	}
 
 	cs.addTextMessage(types.ConversationRoleUser, userMessage)
+
 	input := cs.buildConverseStreamInput()
-
 	klog.V(2).Infof("Starting ConverseStream for model: %s", cs.model)
-
 	output, err := cs.client.runtimeClient.ConverseStream(ctx, input)
 	if err != nil {
 		cs.removeLastMessage()
 		return nil, fmt.Errorf("ConverseStream failed: %w", err)
 	}
-
 	return cs.createStreamingIterator(output), nil
 }
 
@@ -436,7 +434,6 @@ func (cs *bedrockChatSession) createToolUseBlock(toolCall gollm.FunctionCall) *t
 	return toolUseBlock
 }
 
-
 func (cs *bedrockChatSession) removeLastMessage() {
 	if len(cs.history) > 0 {
 		cs.history = cs.history[:len(cs.history)-1]
@@ -461,18 +458,16 @@ func (cs *bedrockChatSession) buildConverseInput() *bedrockruntime.ConverseInput
 		}
 		klog.V(2).Info("Added system prompt to Bedrock input")
 	}
-	
+
 	if len(cs.functionDefs) > 0 {
 		klog.V(1).Infof("Setting up tool configuration with %d function definitions", len(cs.functionDefs))
 		tools := cs.buildTools()
 		if len(tools) > 0 {
 			input.ToolConfig = &types.ToolConfiguration{
 				Tools: tools,
-				ToolChoice: &types.ToolChoiceMemberAuto{
-					Value: types.AutoToolChoice{},
-				},
+				ToolChoice: &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}},
 			}
-			klog.V(1).Infof("Tool configuration set with %d tools and AutoToolChoice", len(tools))
+			klog.V(1).Infof("Tool configuration set with %d tools and ToolChoice=Any", len(tools))
 		} else {
 			klog.V(1).Info("No tools built despite having function definitions")
 		}
@@ -505,10 +500,9 @@ func (cs *bedrockChatSession) buildConverseStreamInput() *bedrockruntime.Convers
 		if len(tools) > 0 {
 			input.ToolConfig = &types.ToolConfiguration{
 				Tools: tools,
-				ToolChoice: &types.ToolChoiceMemberAuto{
-					Value: types.AutoToolChoice{},
-				},
+				ToolChoice: &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}},
 			}
+			klog.V(1).Infof("Tool configuration set with %d tools and ToolChoice=Any", len(tools))
 		}
 	}
 
@@ -546,12 +540,12 @@ func (cs *bedrockChatSession) buildTools() []types.Tool {
 					Value: schemaDoc,
 				}
 			} else {
-				klog.V(2).Infof("Tool %q has nil schema after conversion", funcDef.Name)
+				klog.V(2).Infof("BEDROCK_DEBUG: Tool %q has nil schema after conversion", funcDef.Name)
 			}
 		} else {
-			klog.V(2).Infof("Tool %q has no parameters", funcDef.Name)
+			klog.V(2).Infof("BEDROCK_DEBUG: Tool %q has no parameters", funcDef.Name)
 		}
-		
+
 		tool := &types.ToolMemberToolSpec{
 			Value: *toolSpec,
 		}
@@ -577,7 +571,7 @@ func convertSchemaToMap(schema *gollm.Schema) map[string]any {
 	if schema.Description != "" {
 		schemaMap["description"] = schema.Description
 	}
-	
+
 	// Handle properties for object types
 	if len(schema.Properties) > 0 {
 		properties := make(map[string]any)
@@ -586,12 +580,12 @@ func convertSchemaToMap(schema *gollm.Schema) map[string]any {
 		}
 		schemaMap["properties"] = properties
 	}
-	
+
 	// Handle required fields (not just for objects)
 	if len(schema.Required) > 0 {
 		schemaMap["required"] = schema.Required
 	}
-	
+
 	if schema.Type == "array" && schema.Items != nil {
 		schemaMap["items"] = convertSchemaToMap(schema.Items)
 	}
@@ -610,9 +604,10 @@ func (cs *bedrockChatSession) parseConverseOutput(output *types.ConverseOutput) 
 	if messageOutput, ok := (*output).(*types.ConverseOutputMemberMessage); ok {
 		message := messageOutput.Value
 		klog.V(2).Infof("Parsing Bedrock response with %d content blocks", len(message.Content))
-		
+
 		if len(message.Content) > 0 {
 			var contentParts []string
+			var toolUseCount, textCount int
 			for i, content := range message.Content {
 				switch c := content.(type) {
 				case *types.ContentBlockMemberText:

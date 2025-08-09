@@ -31,6 +31,7 @@ import (
 	"syscall"
 
 	"github.com/nirmata/kubectl-ai/gollm"
+	_ "github.com/nirmata/kubectl-ai/gollm/bedrock"
 	"github.com/nirmata/kubectl-ai/pkg/agent"
 	"github.com/nirmata/kubectl-ai/pkg/journal"
 	"github.com/nirmata/kubectl-ai/pkg/tools"

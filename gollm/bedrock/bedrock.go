@@ -254,12 +254,28 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 	}
 	input := cs.buildConverseInput()
 
-	klog.V(2).Infof("Sending Converse request for model: %s", cs.model)
+	// Log tool configuration details
+	if input.ToolConfig != nil && len(input.ToolConfig.Tools) > 0 {
+		klog.V(1).Infof("Sending Converse request with %d tools enabled", len(input.ToolConfig.Tools))
+		for i, tool := range input.ToolConfig.Tools {
+			if toolSpec, ok := tool.(*types.ToolMemberToolSpec); ok {
+				toolName := "unknown"
+				if toolSpec.Value.Name != nil {
+					toolName = *toolSpec.Value.Name
+				}
+				klog.V(2).Infof("Tool %d: %s", i, toolName)
+			}
+		}
+	} else {
+		klog.V(2).Info("Sending Converse request with no tools")
+	}
+
+	klog.V(2).Infof("Sending Converse request for model: %s with %d messages in history", cs.model, len(cs.history))
 
 	output, err := cs.client.runtimeClient.Converse(ctx, input)
 	if err != nil {
 		cs.removeLastMessage()
-		return nil, fmt.Errorf("converse api failed: %w", err)
+		return nil, fmt.Errorf("converse API failed: %w", err)
 	}
 
 	response := cs.parseConverseOutput(&output.Output)
@@ -278,7 +294,8 @@ func (cs *bedrockChatSession) Send(ctx context.Context, contents ...any) (gollm.
 
 func (cs *bedrockChatSession) SendStreaming(ctx context.Context, contents ...any) (gollm.ChatResponseIterator, error) {
 	if !isModelSupported(cs.model) {
-		return nil, fmt.Errorf("%s: %s. Supported models: %v", ErrMsgUnsupportedModel, cs.model, getSupportedModels())
+		return nil, fmt.Errorf("%s: %s. Supported models: %v",
+			ErrMsgUnsupportedModel, cs.model, getSupportedModels())
 	}
 
 	userMessage, err := cs.processContents(contents...)
@@ -287,14 +304,8 @@ func (cs *bedrockChatSession) SendStreaming(ctx context.Context, contents ...any
 	}
 
 	cs.addTextMessage(types.ConversationRoleUser, userMessage)
+
 	input := cs.buildConverseStreamInput()
-
-	if input.ToolConfig != nil {
-		klog.Infof("ConverseStream: Sending request with %d tools, ToolChoice type: %T", len(input.ToolConfig.Tools), input.ToolConfig.ToolChoice)
-	} else {
-		klog.Infof("ConverseStream: No tools configured in request")
-	}
-
 	klog.V(2).Infof("Starting ConverseStream for model: %s", cs.model)
 	output, err := cs.client.runtimeClient.ConverseStream(ctx, input)
 	if err != nil {
@@ -380,11 +391,6 @@ func (cs *bedrockChatSession) addTextMessage(role types.ConversationRole, conten
 	cs.addMessage(role, textBlock)
 }
 
-func (cs *bedrockChatSession) addToolUseMessage(role types.ConversationRole, toolCall gollm.FunctionCall) {
-	toolUseBlock := cs.createToolUseBlock(toolCall)
-	cs.addMessage(role, toolUseBlock)
-}
-
 func (cs *bedrockChatSession) addToolResults(toolResults []types.ContentBlock) {
 	if len(toolResults) > 0 {
 		cs.addMessage(types.ConversationRoleUser, toolResults...)
@@ -452,26 +458,18 @@ func (cs *bedrockChatSession) buildConverseInput() *bedrockruntime.ConverseInput
 		}
 		klog.V(2).Info("Added system prompt to Bedrock input")
 	}
+
 	if len(cs.functionDefs) > 0 {
 		klog.V(1).Infof("Setting up tool configuration with %d function definitions", len(cs.functionDefs))
 		tools := cs.buildTools()
-		klog.Infof("BuildConverseStreamInput: Built %d tools from %d function definitions", len(tools), len(cs.functionDefs))
 		if len(tools) > 0 {
-			// Log first few tools for debugging
-			for i, tool := range tools {
-				if i < 3 {
-					if toolSpec, ok := tool.(*types.ToolMemberToolSpec); ok {
-						klog.Infof("Tool %d: %s", i, aws.ToString(toolSpec.Value.Name))
-					}
-				}
-			}
 			input.ToolConfig = &types.ToolConfiguration{
 				Tools: tools,
-				ToolChoice: &types.ToolChoiceMemberAny{
-					Value: types.AnyToolChoice{},
-				},
+				ToolChoice: &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}},
 			}
-			klog.Infof("ToolChoice set to: Any (forces tool usage)")
+			klog.V(1).Infof("Tool configuration set with %d tools and ToolChoice=Any", len(tools))
+		} else {
+			klog.V(1).Info("No tools built despite having function definitions")
 		}
 	} else {
 		klog.V(2).Info("No function definitions provided, skipping tool configuration")
@@ -499,23 +497,12 @@ func (cs *bedrockChatSession) buildConverseStreamInput() *bedrockruntime.Convers
 
 	if len(cs.functionDefs) > 0 {
 		tools := cs.buildTools()
-		klog.Infof("BuildConverseStreamInput: Built %d tools from %d function definitions", len(tools), len(cs.functionDefs))
 		if len(tools) > 0 {
-			// Log first few tools for debugging
-			for i, tool := range tools {
-				if i < 3 {
-					if toolSpec, ok := tool.(*types.ToolMemberToolSpec); ok {
-						klog.Infof("Tool %d: %s", i, aws.ToString(toolSpec.Value.Name))
-					}
-				}
-			}
 			input.ToolConfig = &types.ToolConfiguration{
 				Tools: tools,
-				ToolChoice: &types.ToolChoiceMemberAny{
-					Value: types.AnyToolChoice{},
-				},
+				ToolChoice: &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}},
 			}
-			klog.Infof("ToolChoice set to: Any (forces tool usage)")
+			klog.V(1).Infof("Tool configuration set with %d tools and ToolChoice=Any", len(tools))
 		}
 	}
 
@@ -529,7 +516,7 @@ func (cs *bedrockChatSession) buildTools() []types.Tool {
 	}
 
 	tools := make([]types.Tool, 0, len(cs.functionDefs))
-	klog.Infof("buildTools: Building tools from %d function definitions", len(cs.functionDefs))
+	klog.V(1).Infof("Building %d tools for Bedrock", len(cs.functionDefs))
 
 	for i, funcDef := range cs.functionDefs {
 		if funcDef == nil {
@@ -537,7 +524,7 @@ func (cs *bedrockChatSession) buildTools() []types.Tool {
 			continue
 		}
 
-		klog.Infof("buildTools: Processing function %s: %s", funcDef.Name, funcDef.Description)
+		klog.V(2).Infof("Building tool %q with description: %q", funcDef.Name, funcDef.Description)
 
 		toolSpec := &types.ToolSpecification{
 			Name:        aws.String(funcDef.Name),
@@ -553,11 +540,12 @@ func (cs *bedrockChatSession) buildTools() []types.Tool {
 					Value: schemaDoc,
 				}
 			} else {
-				klog.V(2).Infof("Tool %q has nil schema after conversion", funcDef.Name)
+				klog.V(2).Infof("BEDROCK_DEBUG: Tool %q has nil schema after conversion", funcDef.Name)
 			}
 		} else {
-			klog.V(2).Infof("Tool %q has no parameters", funcDef.Name)
+			klog.V(2).Infof("BEDROCK_DEBUG: Tool %q has no parameters", funcDef.Name)
 		}
+
 		tool := &types.ToolMemberToolSpec{
 			Value: *toolSpec,
 		}
@@ -583,17 +571,21 @@ func convertSchemaToMap(schema *gollm.Schema) map[string]any {
 	if schema.Description != "" {
 		schemaMap["description"] = schema.Description
 	}
-	if schema.Type == "object" && len(schema.Properties) > 0 {
+
+	// Handle properties for object types
+	if len(schema.Properties) > 0 {
 		properties := make(map[string]any)
 		for propName, prop := range schema.Properties {
 			properties[propName] = convertSchemaToMap(prop)
 		}
 		schemaMap["properties"] = properties
-
-		if len(schema.Required) > 0 {
-			schemaMap["required"] = schema.Required
-		}
 	}
+
+	// Handle required fields (not just for objects)
+	if len(schema.Required) > 0 {
+		schemaMap["required"] = schema.Required
+	}
+
 	if schema.Type == "array" && schema.Items != nil {
 		schemaMap["items"] = convertSchemaToMap(schema.Items)
 	}
@@ -611,8 +603,11 @@ func (cs *bedrockChatSession) parseConverseOutput(output *types.ConverseOutput) 
 
 	if messageOutput, ok := (*output).(*types.ConverseOutputMemberMessage); ok {
 		message := messageOutput.Value
+		klog.V(2).Infof("Parsing Bedrock response with %d content blocks", len(message.Content))
+
 		if len(message.Content) > 0 {
 			var contentParts []string
+			var toolUseCount, textCount int
 			for i, content := range message.Content {
 				switch c := content.(type) {
 				case *types.ContentBlockMemberText:
@@ -678,54 +673,70 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 
 		defer output.GetStream().Close()
 
-		assembler := newToolStreamAssembler()
+		var fullContent strings.Builder
+		var usage any
 
 		for event := range output.GetStream().Events() {
 			switch e := event.(type) {
 			case *types.ConverseStreamOutputMemberMessageStart:
-				assembler.onMessageStart()
+				klog.V(3).Info("Stream: Message started")
+
 			case *types.ConverseStreamOutputMemberContentBlockStart:
-				assembler.onContentBlockStart(e.Value)
+				klog.V(3).Info("Stream: Content block started")
+
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
-				// Yield incremental text if any
-				if text := assembler.onContentBlockDelta(e.Value); text != "" {
-					if !yield(&bedrockChatResponse{content: text, model: cs.model, provider: "bedrock"}, nil) {
-						return
+				if delta := e.Value.Delta; delta != nil {
+					if textDelta, ok := delta.(*types.ContentBlockDeltaMemberText); ok {
+						text := textDelta.Value
+						fullContent.WriteString(text)
+
+						response := &bedrockChatResponse{
+							content:   text,
+							usage:     nil,
+							toolCalls: []gollm.FunctionCall{},
+							model:     cs.model,
+							provider:  "bedrock",
+						}
+
+						if !yield(response, nil) {
+							return
+						}
 					}
 				}
+
 			case *types.ConverseStreamOutputMemberContentBlockStop:
-				// Buffer tool calls; do not add to history yet
-				assembler.onContentBlockStop(e.Value)
+				klog.V(3).Info("Stream: Content block stopped")
+
 			case *types.ConverseStreamOutputMemberMessageStop:
-				content, calls := assembler.finalizeMessage()
-				// Build a single assistant message that includes both text and tool uses
-				var blocks []types.ContentBlock
-				if content != "" {
-					blocks = append(blocks, &types.ContentBlockMemberText{Value: content})
+				klog.V(2).Info("Stream: Message completed")
+				if fullContent.Len() > 0 {
+					cs.addTextMessage(types.ConversationRoleAssistant, fullContent.String())
 				}
-				for _, call := range calls {
-					blocks = append(blocks, cs.createToolUseBlock(call))
-				}
-				if len(blocks) > 0 {
-					cs.addMessage(types.ConversationRoleAssistant, blocks...)
-				}
-				if len(calls) > 0 {
-					if !yield(&bedrockChatResponse{toolCalls: calls, model: cs.model, provider: "bedrock"}, nil) {
-						return
-					}
-				}
+
 			case *types.ConverseStreamOutputMemberMetadata:
-				if usage := assembler.onMetadata(e.Value); usage != nil {
+				if e.Value.Usage != nil {
+					usage = e.Value.Usage
+
 					if cs.client.clientOpts.UsageCallback != nil {
 						if structuredUsage := convertAWSUsage(usage, cs.model, "bedrock"); structuredUsage != nil {
 							cs.client.clientOpts.UsageCallback("bedrock", cs.model, *structuredUsage)
 							klog.V(2).Infof("Usage callback invoked for streaming: %d tokens", structuredUsage.TotalTokens)
 						}
 					}
-					if !yield(&bedrockChatResponse{usage: usage, model: cs.model, provider: "bedrock"}, nil) {
+
+					finalResponse := &bedrockChatResponse{
+						content:   "",
+						usage:     usage,
+						toolCalls: []gollm.FunctionCall{},
+						model:     cs.model,
+						provider:  "bedrock",
+					}
+
+					if !yield(finalResponse, nil) {
 						return
 					}
 				}
+
 			default:
 				klog.V(3).Infof("Stream: Unknown event type: %T", e)
 			}
@@ -735,112 +746,6 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 			yield(nil, fmt.Errorf("stream error: %w", err))
 		}
 	}
-}
-
-// toolStreamAssembler assembles Bedrock streaming events into text and tool calls.
-type toolStreamAssembler struct {
-	fullContent strings.Builder
-	// Track active tool-use by content block index
-	activeTools  map[int32]*activeTool
-	pendingCalls []gollm.FunctionCall
-	pendingUsage any
-}
-
-type activeTool struct {
-	call         gollm.FunctionCall
-	inputBuilder strings.Builder
-}
-
-func newToolStreamAssembler() *toolStreamAssembler {
-	return &toolStreamAssembler{
-		activeTools:  make(map[int32]*activeTool),
-		pendingCalls: make([]gollm.FunctionCall, 0),
-	}
-}
-
-func (a *toolStreamAssembler) onMessageStart() {
-	// reset per-message state
-	a.fullContent.Reset()
-	a.pendingCalls = a.pendingCalls[:0]
-	a.activeTools = make(map[int32]*activeTool)
-}
-
-func (a *toolStreamAssembler) onContentBlockStart(evt types.ContentBlockStartEvent) {
-	if start, ok := evt.Start.(*types.ContentBlockStartMemberToolUse); ok {
-		idx := int32(0)
-		if evt.ContentBlockIndex != nil {
-			idx = *evt.ContentBlockIndex
-		}
-		call := gollm.FunctionCall{
-			ID:   aws.ToString(start.Value.ToolUseId),
-			Name: aws.ToString(start.Value.Name),
-		}
-		a.activeTools[idx] = &activeTool{call: call}
-	}
-}
-
-// Returns incremental text to yield if present
-func (a *toolStreamAssembler) onContentBlockDelta(evt types.ContentBlockDeltaEvent) string {
-	if textDelta, ok := evt.Delta.(*types.ContentBlockDeltaMemberText); ok {
-		text := textDelta.Value
-		if text != "" {
-			a.fullContent.WriteString(text)
-		}
-		return text
-	}
-	if toolDelta, ok := evt.Delta.(*types.ContentBlockDeltaMemberToolUse); ok {
-		// Accumulate tool input JSON
-		input := aws.ToString(toolDelta.Value.Input)
-		if evt.ContentBlockIndex != nil {
-			if at, ok := a.activeTools[*evt.ContentBlockIndex]; ok {
-				at.inputBuilder.WriteString(input)
-			}
-		}
-		return ""
-	}
-	return ""
-}
-
-// Finalize any tool calls on block stop; returns calls to yield
-func (a *toolStreamAssembler) onContentBlockStop(evt types.ContentBlockStopEvent) []gollm.FunctionCall {
-	if evt.ContentBlockIndex == nil {
-		return nil
-	}
-	idx := *evt.ContentBlockIndex
-	at, ok := a.activeTools[idx]
-	if !ok {
-		return nil
-	}
-	// Parse accumulated JSON
-	inputStr := at.inputBuilder.String()
-	if inputStr != "" {
-		var args map[string]any
-		if err := json.Unmarshal([]byte(inputStr), &args); err != nil {
-			at.call.Arguments = map[string]any{"error": "Failed to parse input"}
-		} else {
-			at.call.Arguments = args
-		}
-	} else {
-		at.call.Arguments = map[string]any{}
-	}
-	a.pendingCalls = append(a.pendingCalls, at.call)
-	delete(a.activeTools, idx)
-	return []gollm.FunctionCall{at.call}
-}
-
-func (a *toolStreamAssembler) finalizeMessage() (string, []gollm.FunctionCall) {
-	content := a.fullContent.String()
-	calls := a.pendingCalls
-	// reset for next message
-	a.fullContent.Reset()
-	a.pendingCalls = a.pendingCalls[:0]
-	a.activeTools = make(map[int32]*activeTool)
-	return content, calls
-}
-
-func (a *toolStreamAssembler) onMetadata(evt types.ConverseStreamMetadataEvent) any {
-	a.pendingUsage = evt.Usage
-	return a.pendingUsage
 }
 
 func (cs *bedrockChatSession) IsRetryableError(err error) bool {

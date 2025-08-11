@@ -16,6 +16,7 @@ package bedrock
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -259,8 +260,7 @@ func TestUsageCallbackIntegration(t *testing.T) {
 
 	// Create mock chat session
 	session := &bedrockChatSession{
-		client: client,
-		model:  "test-model",
+		model: "test-model",
 	}
 
 	// Simulate AWS usage data
@@ -407,7 +407,6 @@ func TestClientOptionsIntegration(t *testing.T) {
 
 	// Test client options storage (simulate what NewBedrockClient does)
 	mockClient := &BedrockClient{
-		options:    merged,
 		clientOpts: clientOpts,
 	}
 
@@ -484,6 +483,206 @@ func TestClientCreationWithTimeout(t *testing.T) {
 			}
 			t.Logf("Client creation succeeded after %v", elapsed)
 		}
+	})
+}
+
+// TestStreamingToolUseHandling tests that streaming responses properly handle tool use events
+func TestStreamingToolUseHandling(t *testing.T) {
+	// Helper function to extract text from a response
+	getResponseText := func(response gollm.ChatResponse) string {
+		if response == nil {
+			return ""
+		}
+		candidates := response.Candidates()
+		if len(candidates) == 0 {
+			return ""
+		}
+		parts := candidates[0].Parts()
+		for _, part := range parts {
+			if text, ok := part.AsText(); ok {
+				return text
+			}
+		}
+		return ""
+	}
+
+	// Helper function to extract tool calls from a response
+	getResponseToolCalls := func(response gollm.ChatResponse) []gollm.FunctionCall {
+		if response == nil {
+			return nil
+		}
+		candidates := response.Candidates()
+		if len(candidates) == 0 {
+			return nil
+		}
+		parts := candidates[0].Parts()
+		for _, part := range parts {
+			if calls, ok := part.AsFunctionCalls(); ok {
+				return calls
+			}
+		}
+		return nil
+	}
+
+	t.Run("test_simple_tool_use_logic", func(t *testing.T) {
+		// Test the core logic by directly creating a bedrockChatResponse
+		toolCall := gollm.FunctionCall{
+			ID:   "tool-123",
+			Name: "test_tool",
+			Arguments: map[string]any{
+				"param1": "value1",
+				"param2": float64(42),
+			},
+		}
+
+		response := &bedrockChatResponse{
+			content:   "",
+			usage:     nil,
+			toolCalls: []gollm.FunctionCall{toolCall},
+			model:     "test-model",
+			provider:  "bedrock",
+		}
+
+		// Verify we can extract tool calls correctly
+		extractedCalls := getResponseToolCalls(response)
+		require.Len(t, extractedCalls, 1, "Expected exactly one tool call")
+
+		extractedCall := extractedCalls[0]
+		assert.Equal(t, "tool-123", extractedCall.ID)
+		assert.Equal(t, "test_tool", extractedCall.Name)
+		assert.Equal(t, "value1", extractedCall.Arguments["param1"])
+		assert.Equal(t, float64(42), extractedCall.Arguments["param2"])
+	})
+
+	t.Run("test_mixed_content_and_tools", func(t *testing.T) {
+		// Test response with both text content and tool calls
+		toolCall := gollm.FunctionCall{
+			ID:   "mixed-tool-456",
+			Name: "helper_tool",
+			Arguments: map[string]any{
+				"action": "analyze",
+			},
+		}
+
+		// Text-only response
+		textResponse := &bedrockChatResponse{
+			content:   "I'll help you with that. Let me use a tool.",
+			usage:     nil,
+			toolCalls: []gollm.FunctionCall{},
+			model:     "test-model",
+			provider:  "bedrock",
+		}
+
+		// Tool-only response
+		toolResponse := &bedrockChatResponse{
+			content:   "",
+			usage:     nil,
+			toolCalls: []gollm.FunctionCall{toolCall},
+			model:     "test-model",
+			provider:  "bedrock",
+		}
+
+		// Verify text extraction
+		textContent := getResponseText(textResponse)
+		assert.Equal(t, "I'll help you with that. Let me use a tool.", textContent)
+
+		// Verify tool call extraction
+		toolCalls := getResponseToolCalls(toolResponse)
+		require.Len(t, toolCalls, 1)
+		extractedCall := toolCalls[0]
+		assert.Equal(t, "mixed-tool-456", extractedCall.ID)
+		assert.Equal(t, "helper_tool", extractedCall.Name)
+		assert.Equal(t, "analyze", extractedCall.Arguments["action"])
+	})
+
+	t.Run("test_json_parsing_in_streaming", func(t *testing.T) {
+		// Test JSON parsing logic used in streaming deltas
+		testCases := []struct {
+			name          string
+			jsonInput     string
+			expectedValid bool
+			expectedArgs  map[string]any
+		}{
+			{
+				name:          "valid_simple_json",
+				jsonInput:     `{"param1": "value1", "param2": 42}`,
+				expectedValid: true,
+				expectedArgs: map[string]any{
+					"param1": "value1",
+					"param2": float64(42),
+				},
+			},
+			{
+				name:          "valid_nested_json",
+				jsonInput:     `{"config": {"enabled": true, "count": 5}}`,
+				expectedValid: true,
+				expectedArgs: map[string]any{
+					"config": map[string]any{
+						"enabled": true,
+						"count":   float64(5),
+					},
+				},
+			},
+			{
+				name:          "invalid_json",
+				jsonInput:     `{"param1": "value1", "param2":`,
+				expectedValid: false,
+				expectedArgs:  nil,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var inputValue any
+				err := json.Unmarshal([]byte(tc.jsonInput), &inputValue)
+
+				if tc.expectedValid {
+					require.NoError(t, err)
+					if argMap, ok := inputValue.(map[string]any); ok {
+						for key, expectedValue := range tc.expectedArgs {
+							actualValue := argMap[key]
+							assert.Equal(t, expectedValue, actualValue, "Mismatch for key: %s", key)
+						}
+					} else {
+						t.Errorf("Expected map[string]any, got %T", inputValue)
+					}
+				} else {
+					assert.Error(t, err, "Expected JSON parsing to fail")
+				}
+			})
+		}
+	})
+
+	t.Run("test_tool_use_block_creation", func(t *testing.T) {
+		// Test the createToolUseBlock method used in streaming
+		session := &bedrockChatSession{
+			client: &BedrockClient{
+				clientOpts: gollm.ClientOptions{},
+			},
+			model: "test-model",
+		}
+
+		toolCall := gollm.FunctionCall{
+			ID:   "test-block-789",
+			Name: "block_tool",
+			Arguments: map[string]any{
+				"operation": "create",
+				"count":     3,
+			},
+		}
+
+		toolUseBlock := session.createToolUseBlock(toolCall)
+		require.NotNil(t, toolUseBlock)
+		assert.Equal(t, "test-block-789", *toolUseBlock.Value.ToolUseId)
+		assert.Equal(t, "block_tool", *toolUseBlock.Value.Name)
+
+		// Verify the input document is not nil (the exact content parsing is AWS SDK specific)
+		require.NotNil(t, toolUseBlock.Value.Input)
+
+		// We can't easily test the document unmarshaling without more complex setup,
+		// but we can verify the block structure is correct and the ID/Name are set properly
+		t.Logf("Successfully created tool use block with ID: %s, Name: %s",
+			*toolUseBlock.Value.ToolUseId, *toolUseBlock.Value.Name)
 	})
 }
 

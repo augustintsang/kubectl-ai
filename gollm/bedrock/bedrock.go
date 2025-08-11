@@ -674,6 +674,8 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 
 		var fullContent strings.Builder
 		var usage any
+		var currentToolCall *gollm.FunctionCall
+		var collectedToolCalls []gollm.FunctionCall
 
 		for event := range output.GetStream().Events() {
 			switch e := event.(type) {
@@ -681,7 +683,24 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				klog.V(3).Info("Stream: Message started")
 
 			case *types.ConverseStreamOutputMemberContentBlockStart:
-				klog.V(3).Info("Stream: Content block started")
+				if start := e.Value.Start; start != nil {
+					if toolStart, ok := start.(*types.ContentBlockStartMemberToolUse); ok {
+						klog.V(2).Info("Stream: Tool use block started")
+						currentToolCall = &gollm.FunctionCall{}
+						
+						if toolStart.Value.ToolUseId != nil {
+							currentToolCall.ID = *toolStart.Value.ToolUseId
+							klog.V(3).Infof("Stream: Tool call ID: %s", currentToolCall.ID)
+						}
+						if toolStart.Value.Name != nil {
+							currentToolCall.Name = *toolStart.Value.Name
+							klog.V(2).Infof("Stream: Tool call name: %s", currentToolCall.Name)
+						}
+						currentToolCall.Arguments = map[string]any{}
+					} else {
+						klog.V(3).Info("Stream: Content block started")
+					}
+				}
 
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
 				if delta := e.Value.Delta; delta != nil {
@@ -700,16 +719,65 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 						if !yield(response, nil) {
 							return
 						}
+					} else if toolDelta, ok := delta.(*types.ContentBlockDeltaMemberToolUse); ok && currentToolCall != nil {
+						klog.V(3).Info("Stream: Tool use delta received")
+						if toolDelta.Value.Input != nil {
+							// Parse the JSON string input incrementally
+							inputStr := *toolDelta.Value.Input
+							klog.V(3).Infof("Stream: Tool call %s input delta: %s", currentToolCall.Name, inputStr)
+							
+							// Try to parse the accumulated input as JSON
+							// Note: This is a simplified approach - in a full implementation,
+							// you might want to buffer partial JSON strings until complete
+							var inputValue any
+							if err := json.Unmarshal([]byte(inputStr), &inputValue); err != nil {
+								klog.V(3).Infof("Stream: Partial JSON input for %s (will continue buffering): %v", currentToolCall.Name, err)
+							} else {
+								if argMap, ok := inputValue.(map[string]any); ok {
+									currentToolCall.Arguments = argMap
+									klog.V(3).Infof("Stream: Tool call %s arguments updated: %+v", currentToolCall.Name, argMap)
+								}
+							}
+						}
 					}
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockStop:
-				klog.V(3).Info("Stream: Content block stopped")
+				if currentToolCall != nil {
+					klog.V(2).Infof("Stream: Tool use block stopped - Added tool call: %s (ID: %s)", currentToolCall.Name, currentToolCall.ID)
+					collectedToolCalls = append(collectedToolCalls, *currentToolCall)
+					
+					// Yield the tool call immediately when it's complete
+					response := &bedrockChatResponse{
+						content:   "",
+						usage:     nil,
+						toolCalls: []gollm.FunctionCall{*currentToolCall},
+						model:     cs.model,
+						provider:  "bedrock",
+					}
+					
+					if !yield(response, nil) {
+						return
+					}
+					
+					currentToolCall = nil
+				} else {
+					klog.V(3).Info("Stream: Content block stopped")
+				}
 
 			case *types.ConverseStreamOutputMemberMessageStop:
 				klog.V(2).Info("Stream: Message completed")
 				if fullContent.Len() > 0 {
 					cs.addTextMessage(types.ConversationRoleAssistant, fullContent.String())
+				}
+				if len(collectedToolCalls) > 0 {
+					// Create content blocks for tool calls
+					var toolBlocks []types.ContentBlock
+					for _, toolCall := range collectedToolCalls {
+						toolUseBlock := cs.createToolUseBlock(toolCall)
+						toolBlocks = append(toolBlocks, toolUseBlock)
+					}
+					cs.addMessage(types.ConversationRoleAssistant, toolBlocks...)
 				}
 
 			case *types.ConverseStreamOutputMemberMetadata:

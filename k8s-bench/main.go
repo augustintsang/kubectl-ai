@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nirmata/kubectl-ai/k8s-bench/pkg/model"
+	"github.com/GoogleCloudPlatform/kubectl-ai/k8s-bench/pkg/model"
 	"sigs.k8s.io/yaml"
 )
 

@@ -17,7 +17,7 @@ package tools
 import (
 	"context"
 
-	"github.com/nirmata/kubectl-ai/gollm"
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 )
 
 type Tool interface {

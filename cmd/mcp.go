@@ -20,9 +20,9 @@ import (
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/nirmata/kubectl-ai/gollm"
-	"github.com/nirmata/kubectl-ai/pkg/mcp"
-	"github.com/nirmata/kubectl-ai/pkg/tools"
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/mcp"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/tools"
 	"k8s.io/klog/v2"
 )
 

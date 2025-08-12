@@ -30,8 +30,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nirmata/kubectl-ai/pkg/agent"
-	"github.com/nirmata/kubectl-ai/pkg/api"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/agent"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
 	"k8s.io/klog/v2"
 )
 

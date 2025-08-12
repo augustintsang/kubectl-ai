@@ -17,7 +17,7 @@ package bedrock
 import (
 	"fmt"
 
-	"github.com/nirmata/kubectl-ai/gollm"
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 )
 
 type bedrockChatResponse struct {

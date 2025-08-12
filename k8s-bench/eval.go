@@ -27,7 +27,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nirmata/kubectl-ai/k8s-bench/pkg/model"
+	"github.com/GoogleCloudPlatform/kubectl-ai/k8s-bench/pkg/model"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )

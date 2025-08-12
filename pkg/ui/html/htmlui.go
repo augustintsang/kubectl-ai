@@ -28,10 +28,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/glamour"
-	"github.com/nirmata/kubectl-ai/pkg/agent"
-	"github.com/nirmata/kubectl-ai/pkg/api"
-	"github.com/nirmata/kubectl-ai/pkg/journal"
-	"github.com/nirmata/kubectl-ai/pkg/ui"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/agent"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/journal"
+	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/ui"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
 )

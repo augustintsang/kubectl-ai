@@ -22,13 +22,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrock"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/nirmata/kubectl-ai/gollm"
 	"k8s.io/klog/v2"
 )
 
@@ -306,6 +306,13 @@ func (cs *bedrockChatSession) SendStreaming(ctx context.Context, contents ...any
 	cs.addTextMessage(types.ConversationRoleUser, userMessage)
 
 	input := cs.buildConverseStreamInput()
+
+	if input.ToolConfig != nil {
+		klog.Infof("ConverseStream: Sending request with %d tools, ToolChoice type: %T", len(input.ToolConfig.Tools), input.ToolConfig.ToolChoice)
+	} else {
+		klog.Infof("ConverseStream: No tools configured in request")
+	}
+
 	klog.V(2).Infof("Starting ConverseStream for model: %s", cs.model)
 	output, err := cs.client.runtimeClient.ConverseStream(ctx, input)
 	if err != nil {
@@ -464,7 +471,7 @@ func (cs *bedrockChatSession) buildConverseInput() *bedrockruntime.ConverseInput
 		tools := cs.buildTools()
 		if len(tools) > 0 {
 			input.ToolConfig = &types.ToolConfiguration{
-				Tools: tools,
+				Tools:      tools,
 				ToolChoice: &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}},
 			}
 			klog.V(1).Infof("Tool configuration set with %d tools and ToolChoice=Any", len(tools))
@@ -499,7 +506,7 @@ func (cs *bedrockChatSession) buildConverseStreamInput() *bedrockruntime.Convers
 		tools := cs.buildTools()
 		if len(tools) > 0 {
 			input.ToolConfig = &types.ToolConfiguration{
-				Tools: tools,
+				Tools:      tools,
 				ToolChoice: &types.ToolChoiceMemberAny{Value: types.AnyToolChoice{}},
 			}
 			klog.V(1).Infof("Tool configuration set with %d tools and ToolChoice=Any", len(tools))
@@ -687,7 +694,7 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 					if toolStart, ok := start.(*types.ContentBlockStartMemberToolUse); ok {
 						klog.V(2).Info("Stream: Tool use block started")
 						currentToolCall = &gollm.FunctionCall{}
-						
+
 						if toolStart.Value.ToolUseId != nil {
 							currentToolCall.ID = *toolStart.Value.ToolUseId
 							klog.V(3).Infof("Stream: Tool call ID: %s", currentToolCall.ID)
@@ -725,7 +732,7 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 							// Parse the JSON string input incrementally
 							inputStr := *toolDelta.Value.Input
 							klog.V(3).Infof("Stream: Tool call %s input delta: %s", currentToolCall.Name, inputStr)
-							
+
 							// Try to parse the accumulated input as JSON
 							// Note: This is a simplified approach - in a full implementation,
 							// you might want to buffer partial JSON strings until complete
@@ -746,7 +753,7 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 				if currentToolCall != nil {
 					klog.V(2).Infof("Stream: Tool use block stopped - Added tool call: %s (ID: %s)", currentToolCall.Name, currentToolCall.ID)
 					collectedToolCalls = append(collectedToolCalls, *currentToolCall)
-					
+
 					// Yield the tool call immediately when it's complete
 					response := &bedrockChatResponse{
 						content:   "",
@@ -755,11 +762,11 @@ func (cs *bedrockChatSession) createStreamingIterator(output *bedrockruntime.Con
 						model:     cs.model,
 						provider:  "bedrock",
 					}
-					
+
 					if !yield(response, nil) {
 						return
 					}
-					
+
 					currentToolCall = nil
 				} else {
 					klog.V(3).Info("Stream: Content block stopped")

@@ -25,8 +25,6 @@ import (
 	openai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"k8s.io/klog/v2"
-
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
 )
 
 // Package-level env var storage (OpenAI env)
@@ -344,26 +342,23 @@ func (cs *openAIChatSession) SendStreaming(ctx context.Context, contents ...any)
 			}
 
 			// Handle tool call completion
-			var toolCallsForThisChunk []openai.ChatCompletionMessageToolCall
 			if tool, ok := acc.JustFinishedToolCall(); ok {
 				klog.V(2).Infof("Tool call finished: %s %s", tool.Name, tool.Arguments)
-				newToolCall := openai.ChatCompletionMessageToolCall{
+				currentToolCalls = append(currentToolCalls, openai.ChatCompletionMessageToolCall{
 					ID: tool.ID,
 					Function: openai.ChatCompletionMessageToolCallFunction{
 						Name:      tool.Name,
 						Arguments: tool.Arguments,
 					},
-				}
-				currentToolCalls = append(currentToolCalls, newToolCall)
-				// Only include the newly finished tool call in this chunk
-				toolCallsForThisChunk = []openai.ChatCompletionMessageToolCall{newToolCall}
+				})
 			}
 
+			// Create a streaming response with proper nil checks
 			streamResponse := &openAIChatStreamResponse{
 				streamChunk: chunk,
 				accumulator: acc,
 				content:     "", // Default to empty content
-				toolCalls:   toolCallsForThisChunk,
+				toolCalls:   currentToolCalls,
 			}
 
 			// Only process content if there are choices and a delta
@@ -421,10 +416,6 @@ func (cs *openAIChatSession) IsRetryableError(err error) bool {
 		return false
 	}
 	return DefaultIsRetryableError(err)
-}
-
-func (cs *openAIChatSession) Initialize(messages []*api.Message) error {
-	return fmt.Errorf("Initialize not yet implemented for openai")
 }
 
 // Helper structs for ChatResponse interface

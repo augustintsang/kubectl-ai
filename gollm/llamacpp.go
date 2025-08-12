@@ -25,8 +25,6 @@ import (
 	"os"
 
 	"k8s.io/klog/v2"
-
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
 )
 
 func init() {
@@ -293,10 +291,6 @@ func (c *LlamaCppChat) SendStreaming(ctx context.Context, contents ...any) (Chat
 func (c *LlamaCppChat) IsRetryableError(err error) bool {
 	// TODO(droot): Implement this
 	return false
-}
-
-func (c *LlamaCppChat) Initialize(messages []*api.Message) error {
-	return fmt.Errorf("Initialize not yet implemented for llamacpp")
 }
 
 func ptrTo[T any](t T) *T {

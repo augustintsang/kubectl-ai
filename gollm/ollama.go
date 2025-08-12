@@ -22,8 +22,6 @@ import (
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/envconfig"
 	"k8s.io/klog/v2"
-
-	kctlApi "github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
 )
 
 func init() {
@@ -207,10 +205,6 @@ func (c *OllamaChat) SendStreaming(ctx context.Context, contents ...any) (ChatRe
 		return nil, err
 	}
 	return singletonChatResponseIterator(response), nil
-}
-
-func (c *OllamaChat) Initialize(messages []*kctlApi.Message) error {
-	return fmt.Errorf("Initialize not yet implemented for ollama")
 }
 
 type OllamaChatResponse struct {

@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
+	"github.com/nirmata/kubectl-ai/gollm"
 	"k8s.io/klog/v2"
 )
 

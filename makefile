@@ -156,3 +156,6 @@ test-coverage: ## Run tests with coverage and generate HTML report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
+test-bedrock: ## Run Bedrock unit tests (same pattern as other providers)
+	@echo "λ Running Bedrock unit tests..."
+	cd gollm/bedrock && go test -v ./...

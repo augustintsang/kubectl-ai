@@ -18,11 +18,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/gollm"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/mcp"
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/tools"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/nirmata/kubectl-ai/gollm"
+	"github.com/nirmata/kubectl-ai/pkg/mcp"
+	"github.com/nirmata/kubectl-ai/pkg/tools"
 	"k8s.io/klog/v2"
 )
 
@@ -32,11 +32,9 @@ type kubectlMCPServer struct {
 	tools         tools.Tools
 	workDir       string
 	mcpManager    *mcp.Manager // Add MCP manager for external tool calls
-	mcpServerMode string       // Server mode (e.g., "mcd", "sse")
-	sseEndpoint   int          // SSE endpoint for server mode
 }
 
-func newKubectlMCPServer(ctx context.Context, kubectlConfig string, tools tools.Tools, workDir string, exposeExternalTools bool, serverMode string, sseEndpoint int) (*kubectlMCPServer, error) {
+func newKubectlMCPServer(ctx context.Context, kubectlConfig string, tools tools.Tools, workDir string, exposeExternalTools bool) (*kubectlMCPServer, error) {
 	s := &kubectlMCPServer{
 		kubectlConfig: kubectlConfig,
 		workDir:       workDir,
@@ -45,9 +43,7 @@ func newKubectlMCPServer(ctx context.Context, kubectlConfig string, tools tools.
 			"0.0.1",
 			server.WithToolCapabilities(true),
 		),
-		tools:         tools,
-		mcpServerMode: serverMode,
-		sseEndpoint:   sseEndpoint,
+		tools: tools,
 	}
 
 	// Add built-in tools
@@ -169,16 +165,6 @@ func (s *kubectlMCPServer) Serve(ctx context.Context) error {
 	}
 
 	klog.Info("Starting kubectl-ai MCP server")
-
-	if s.mcpServerMode == "sse" {
-		// Start the server in SSE mode
-		klog.Infof("Starting MCP server in SSE mode on endpoint %d", s.sseEndpoint)
-		sseServer := server.NewSSEServer(s.server)
-		endpoint := fmt.Sprintf(":%d", s.sseEndpoint)
-		klog.Infof("Listening for SSE connections on port %d", s.sseEndpoint)
-		return sseServer.Start(endpoint)
-	}
-
 	return server.ServeStdio(s.server)
 }
 

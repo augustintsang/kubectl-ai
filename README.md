@@ -1,8 +1,8 @@
 # kubectl-ai
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/GoogleCloudPlatform/kubectl-ai)](https://goreportcard.com/report/github.com/GoogleCloudPlatform/kubectl-ai)
-![GitHub License](https://img.shields.io/github/license/GoogleCloudPlatform/kubectl-ai)
-[![GitHub stars](https://img.shields.io/github/stars/GoogleCloudPlatform/kubectl-ai.svg)](https://github.com/GoogleCloudPlatform/kubectl-ai/stargazers)
+[![Go Report Card](https://goreportcard.com/badge/github.com/nirmata/kubectl-ai)](https://goreportcard.com/report/github.com/nirmata/kubectl-ai)
+![GitHub License](https://img.shields.io/github/license/nirmata/kubectl-ai)
+[![GitHub stars](https://img.shields.io/github/stars/nirmata/kubectl-ai.svg)](https://github.com/nirmata/kubectl-ai/stargazers)
 
 `kubectl-ai` acts as an intelligent interface, translating user intent into
 precise Kubernetes operations, making Kubernetes management more accessible and
@@ -19,7 +19,7 @@ First, ensure that kubectl is installed and configured.
 #### Quick Install (Linux & MacOS only)
 
 ```shell
-curl -sSL https://raw.githubusercontent.com/GoogleCloudPlatform/kubectl-ai/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/nirmata/kubectl-ai/main/install.sh | bash
 ```
 
 <details>
@@ -28,7 +28,7 @@ curl -sSL https://raw.githubusercontent.com/GoogleCloudPlatform/kubectl-ai/main/
 
 #### Manual Installation (Linux, MacOS and Windows)
 
-1. Download the latest release from the [releases page](https://github.com/GoogleCloudPlatform/kubectl-ai/releases/latest) for your target machine.
+1. Download the latest release from the [releases page](https://github.com/nirmata/kubectl-ai/releases/latest) for your target machine.
 
 2. Untar the release, make the binary executable and move it to a directory in your $PATH (as shown below).
 
@@ -69,7 +69,7 @@ nix-shell -p kubectl-ai
 
 ### Usage
 
-`kubectl-ai` supports AI models from `gemini`, `vertexai`, `azopenai`, `openai`, `grok`, `bedrock` and local LLM providers such as `ollama` and `llama.cpp`.
+`kubectl-ai` supports AI models from `gemini`, `vertexai`, `azopenai`, `openai`, `grok` and local LLM providers such as `ollama` and `llama.cpp`.
 
 #### Using Gemini (Default)
 
@@ -120,32 +120,6 @@ You can use X.AI's Grok model by setting your X.AI API key:
 export GROK_API_KEY=your_xai_api_key_here
 kubectl-ai --llm-provider=grok --model=grok-3-beta
 ```
-
-#### Using AWS Bedrock
-
-You can use AWS Bedrock Claude models with your AWS credentials:
-
-```bash
-# Configure AWS credentials using AWS SSO
-aws sso login --profile your-profile-name
-# Or use other AWS credential methods (IAM roles, environment variables, etc.)
-
-# Use Claude 4 Sonnet (default)
-kubectl-ai --llm-provider=bedrock --model=us.anthropic.claude-sonnet-4-20250514-v1:0
-
-# Use Claude 3.7 Sonnet
-kubectl-ai --llm-provider=bedrock --model=us.anthropic.claude-3-7-sonnet-20250219-v1:0
-
-# Override model via environment variable
-export BEDROCK_MODEL=us.anthropic.claude-sonnet-4-20250514-v1:0
-kubectl-ai --llm-provider=bedrock
-```
-
-AWS Bedrock uses the standard AWS SDK credential chain, supporting:
-- AWS SSO profiles
-- IAM roles (for EC2/ECS/Lambda)
-- Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-- AWS CLI configuration files
 
 #### Using Azure OpenAI
 
@@ -207,15 +181,6 @@ You can even combine a positional argument with stdin input. The positional argu
 
 ```shell
 cat error.log | kubectl-ai "explain the error"
-```
-
-We also support persistence between runs with an opt-in. This lets you save a session to the local filesystem, and resume it to maintain previous context. It even works between different interfaces!
-
-```shell
-kubectl-ai --new-session # start a new session
-kubectl-ai --list-sessions # list all saved sessions
-kubectl-ai --resume-session 20250807-510872 # resume session 20250807-510872
-kubectl-ai --delete-session 20250807-510872 # delete session 20250807-510872
 ```
 
 ## Configuration
@@ -297,43 +262,38 @@ You can also extend its capabilities by defining your own custom tools. By defau
 
 To specify tools configuration files or directories containing tools configuration files, use:
 
-```sh
-./kubectl-ai --custom-tools-config=<path-to-tools-directory> "your prompt here"
+```shell
+kubectl-ai --custom-tools-config=YOUR_CONFIG
 ```
 
-For further details on how to configure your own tools, [go here](docs/tools.md).
+You can include multiple tools in a single configuration file, or a directory with multiple configuration files, each dedicated to a single or multiple tools.
+Define your custom tools using the following schema:
 
-## Docker Quick Start 
-This project provides a Docker image that gives you a standalone environment for running kubectl-ai, including against a GKE cluster.
-
-### Running the container against GKE
-
-#### Step 1: Build the Image
-
-Clone the repository and build the image with the following command 
-
-```bash
-git clone https://github.com/GoogleCloudPlatform/kubectl-ai.git
-cd kubectl-ai
-docker build -t kubectl-ai:latest -f images/kubectl-ai/Dockerfile .
+```yaml
+- name: tool_name
+  description: "A clear description that helps the LLM understand when to use this tool."
+  command: "your_command" # For example: 'gcloud' or 'gcloud container clusters'
+  command_desc: "Detailed information for the LLM, including command syntax and usage examples."
 ```
 
-#### Step 2: Connect to Your GKE Cluster
-Set up application default credentials and connect to your GKE cluster.
-```bash
-gcloud auth application-default login # If in a gcloud shell this is not necessary
-gcloud container clusters get-credentials <cluster-name> --zone <zone>
+A custom tool definition for `helm` could look like the following example:
+
+```yaml
+- name: helm
+  description: "Helm is the Kubernetes package manager and deployment tool. Use it to define, install, upgrade, and roll back applications packaged as Helm charts in a Kubernetes cluster."
+  command: "helm"
+  command_desc: |
+    Helm command-line interface, with the following core subcommands and usage patterns:    
+    - helm install <release-name> <chart> [flags]  
+      Install a chart into the cluster.      
+    - helm upgrade <release-name> <chart> [flags]  
+      Upgrade an existing release to a new chart version or configuration.      
+    - helm list [flags]  
+      List all releases in one or all namespaces.      
+    - helm uninstall <release-name> [flags]  
+      Uninstall a release and clean up associated resources.  
+    Use `helm --help` or `helm <subcommand> --help` to see full syntax, available flags, and examples for each command.
 ```
-
-#### Step 3: Run the kubectl-ai container
-Below is a sample command that can be used to launch the container with a locally hosted web-ui. Be sure to replace the placeholder values with your specific Google Cloud project ID and location. Note you 
-do not need to mount the gcloud config directory if you're on a cloudshell machine. 
-
-```bash
-docker run --rm -it -p 8080:8080 -v ~/.kube:/root/.kube -v ~/.config/gcloud:/root/.config/gcloud -e GOOGLE_CLOUD_LOCATION=us-central1 -e GOOGLE_CLOUD_PROJECT=my-gcp-project kubectl-ai:latest --llm-provider vertexai --ui-listen-address 0.0.0.0:8080 --ui-type web
-```
-
-For more info about running from the container image see [CONTAINER.md](CONTAINER.md)
 
 ## MCP Client Mode
 
@@ -434,22 +394,14 @@ The enhanced mode provides AI clients with access to both Kubernetes operations 
 
 ## k8s-bench
 
-kubectl-ai project includes [k8s-bench](./k8s-bench/README.md) - a benchmark to evaluate performance of different LLM models on kubernetes related tasks. 
+kubectl-ai project includes [k8s-bench](./k8s-bench/README.md) - a benchmark to evaluate performance of different LLM models on kubernetes related tasks. Here is a summary from our last run:
 
-### Latest Benchmark Results (August 2025)
-
-Comprehensive evaluation on identical 10-task Kubernetes benchmark with proper CNI environment:
-
-| Model | Success | Fail | Success Rate |
-|-------|---------|------|--------------|
-| **AWS Bedrock Claude 3.7 Sonnet** | **10** | **0** | **100%** |
-| **AWS Bedrock Claude Sonnet 4** | **9** | **1** | **90%** |
-| gemini-2.5-flash-preview-04-17 | 10 | 0 | 100% |
-| gemini-2.5-pro-preview-03-25 | 10 | 0 | 100% |
-| gemma-3-27b-it | 8 | 2 | 80% |
-
-**Test Environment**: Kind cluster v1.27.3 with Calico CNI (full NetworkPolicy support)  
-**Tasks**: create-pod, create-pod-mount-configmaps, create-pod-resources-limits, create-network-policy, fix-crashloop, fix-image-pull, fix-service-routing, list-images-for-pods, scale-deployment, scale-down-deployment
+| Model | Success | Fail |
+|-------|---------|------|
+| gemini-2.5-flash-preview-04-17 | 10 | 0 |
+| gemini-2.5-pro-preview-03-25 | 10 | 0 |
+| gemma-3-27b-it | 8 | 2 |
+| **Total** | 28 | 2 |
 
 See [full report](./k8s-bench.md) for more details.
 

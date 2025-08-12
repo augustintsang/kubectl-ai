@@ -29,8 +29,6 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
-
 	"k8s.io/klog/v2"
 )
 
@@ -172,9 +170,8 @@ func NewVertexAIClient(ctx context.Context, opt VertexAIClientOptions) (*GoogleA
 	}
 
 	client, err := genai.NewClient(ctx, cc)
-
 	if err != nil {
-		return nil, fmt.Errorf("building vertexai client: %w", err)
+		return nil, fmt.Errorf("building gemini client: %w", err)
 	}
 
 	return &GoogleAIClient{
@@ -449,13 +446,6 @@ func (c *GeminiChat) SendStreaming(ctx context.Context, contents ...any) (ChatRe
 			if !ok {
 				return
 			}
-
-			if err != nil {
-				// Always check for and yield an error first.
-				yield(nil, err)
-				return
-			}
-
 			if geminiResponse == nil || len(geminiResponse.Candidates) == 0 {
 				return
 			}
@@ -463,7 +453,7 @@ func (c *GeminiChat) SendStreaming(ctx context.Context, contents ...any) (ChatRe
 			content := geminiResponse.Candidates[0].Content
 			if content == nil || content.Parts == nil || len(content.Parts) == 0 {
 				// This happens when there is empty content with the finish reason (STOP) to indicate that streaming response is finished.
-				// xref: https://github.com/GoogleCloudPlatform/kubectl-ai/issues/306
+				// xref: https://github.com/nirmata/kubectl-ai/issues/306
 				log.V(1).Info("empty response probably with STOP finishedReason")
 				return
 			}
@@ -474,40 +464,6 @@ func (c *GeminiChat) SendStreaming(ctx context.Context, contents ...any) (ChatRe
 			}
 		}
 	}, nil
-}
-
-func (c *GeminiChat) Initialize(messages []*api.Message) error {
-	klog.Info("Initializing gemini chat")
-	c.history = make([]*genai.Content, 0, len(messages))
-	for _, msg := range messages {
-		content, err := c.messageToContent(msg)
-		if err != nil {
-			continue
-		}
-		c.history = append(c.history, content)
-	}
-	return nil
-}
-
-func (c *GeminiChat) messageToContent(msg *api.Message) (*genai.Content, error) {
-	var role string
-	switch msg.Source {
-	case api.MessageSourceUser:
-		role = "user"
-	case api.MessageSourceModel:
-		role = "model"
-	case api.MessageSourceAgent:
-		role = "user" // Treat agent messages as user messages for Gemini history
-	default:
-		return nil, fmt.Errorf("unknown message source: %s", msg.Source)
-	}
-
-	parts, err := c.partsToGemini(msg.Payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert message payload to parts: %w", err)
-	}
-
-	return &genai.Content{Role: role, Parts: parts}, nil
 }
 
 // GeminiChatResponse is a response from the Gemini API.

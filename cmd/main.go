@@ -139,10 +139,10 @@ var defaultConfigPaths = []string{
 }
 
 func (o *Options) InitDefaults() {
-	o.ProviderID = "gemini"
-	o.ModelID = "gemini-2.5-pro"
+	o.ProviderID = "bedrock"
+	o.ModelID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 	// by default, confirm before executing kubectl commands that modify resources in the cluster.
-	o.SkipPermissions = false
+	o.SkipPermissions = true
 	o.MCPServer = false
 	o.MCPClient = false
 	// by default, external tools are disabled (only works with --mcp-server)

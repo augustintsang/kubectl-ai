@@ -146,7 +146,52 @@ type bedrockChat struct {
 }
 
 func (cs *bedrockChat) Initialize(history []*api.Message) error {
-	return fmt.Errorf("Initialize not yet implemented for bedrock")
+	klog.Info("Initializing bedrock chat")
+	cs.messages = make([]types.Message, 0, len(history))
+	
+	for _, msg := range history {
+		// Convert api.Message to types.Message
+		var role types.ConversationRole
+		switch msg.Source {
+		case api.MessageSourceUser:
+			role = types.ConversationRoleUser
+		case api.MessageSourceModel, api.MessageSourceAgent:
+			role = types.ConversationRoleAssistant
+		default:
+			// Skip unknown message sources
+			continue
+		}
+		
+		// Convert payload to string content
+		var content string
+		if msg.Type == api.MessageTypeText && msg.Payload != nil {
+			if textPayload, ok := msg.Payload.(string); ok {
+				content = textPayload
+			} else {
+				// Try to convert other types to string
+				content = fmt.Sprintf("%v", msg.Payload)
+			}
+		} else {
+			// Skip non-text messages for now
+			continue
+		}
+		
+		if content == "" {
+			continue
+		}
+		
+		bedrockMsg := types.Message{
+			Role: role,
+			Content: []types.ContentBlock{
+				&types.ContentBlockMemberText{Value: content},
+			},
+		}
+		
+		cs.messages = append(cs.messages, bedrockMsg)
+	}
+	
+	klog.V(2).Infof("Initialized bedrock chat with %d messages", len(cs.messages))
+	return nil
 }
 
 // Send sends a message to the chat and returns the response
@@ -184,7 +229,10 @@ func (c *bedrockChat) Send(ctx context.Context, contents ...any) (ChatResponse, 
 
 	// Add tool configuration if functions are defined
 	if c.toolConfig != nil {
+		klog.V(2).Infof("Setting tool config with %d tools for non-streaming", len(c.toolConfig.Tools))
 		input.ToolConfig = c.toolConfig
+	} else {
+		klog.V(2).Info("No tool config set for non-streaming request")
 	}
 
 	// Call the Bedrock Converse API
@@ -244,7 +292,10 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 
 	// Add tool configuration if functions are defined
 	if c.toolConfig != nil {
+		klog.V(2).Infof("Setting tool config with %d tools for streaming", len(c.toolConfig.Tools))
 		input.ToolConfig = c.toolConfig
+	} else {
+		klog.V(2).Info("No tool config set for streaming request")
 	}
 
 	// Start the streaming request
@@ -321,9 +372,11 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 
 // SetFunctionDefinitions configures the available functions for tool use
 func (c *bedrockChat) SetFunctionDefinitions(functions []*FunctionDefinition) error {
+	klog.V(2).Infof("Setting %d function definitions for Bedrock", len(functions))
 	c.functionDefs = functions
 
 	if len(functions) == 0 {
+		klog.V(2).Info("No functions provided, clearing tool config")
 		c.toolConfig = nil
 		return nil
 	}
@@ -356,8 +409,12 @@ func (c *bedrockChat) SetFunctionDefinitions(functions []*FunctionDefinition) er
 
 	c.toolConfig = &types.ToolConfiguration{
 		Tools: tools,
+		ToolChoice: &types.ToolChoiceMemberAny{
+			Value: types.AnyToolChoice{},
+		},
 	}
 
+	klog.V(2).Infof("Bedrock tool config created with %d tools and ToolChoice=Any", len(tools))
 	return nil
 }
 

@@ -372,23 +372,17 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 					if partial, exists := partialTools[idx]; exists {
 						deltaInput := aws.ToString(toolDelta.Value.Input)
 						partial.input.WriteString(deltaInput)
-						klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input delta for %s (idx %d): '%s'", partial.name, idx, deltaInput)
+						klog.V(2).Infof("Tool input delta for %s: '%s'", partial.name, deltaInput)
 					} else {
-						klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Received tool delta for unknown index %d", idx)
+						klog.V(2).Infof("Received tool delta for unknown index %d", idx)
 					}
-				} else {
-					// Log what type of delta we actually got
-					klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] ContentBlockDelta type: %T", v.Value.Delta)
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockStart:
 				// Handle content block start (for tool calls)
 				if v.Value.Start != nil {
-					klog.V(3).Infof("Content block started at index: %v", aws.ToInt32(v.Value.ContentBlockIndex))
-					// BEDROCK DEBUG: Log what type of content block is starting
-					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Content block start - Type: %T", v.Value.Start)
 					if toolStart, ok := v.Value.Start.(*types.ContentBlockStartMemberToolUse); ok {
-						klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ STREAMING TOOL USE STARTED - ID: %s, Name: %s",
+						klog.V(2).Infof("Streaming tool use started - ID: %s, Name: %s",
 							aws.ToString(toolStart.Value.ToolUseId), aws.ToString(toolStart.Value.Name))
 						
 						// Store partial tool for input accumulation
@@ -404,26 +398,37 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 				// Handle content block stop (tool completion)
 				idx := aws.ToInt32(v.Value.ContentBlockIndex)
 				if partial, exists := partialTools[idx]; exists {
-					klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ TOOL COMPLETED - ID: %s, Name: %s", partial.id, partial.name)
+					klog.V(2).Infof("Tool completed - ID: %s, Name: %s", partial.id, partial.name)
 					
-					// Create complete ToolUseBlock
+					// Parse the JSON to extract arguments for function call
 					inputJSON := partial.input.String()
-					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input JSON for %s: '%s'", partial.name, inputJSON)
+					klog.V(2).Infof("Tool input JSON for %s: '%s'", partial.name, inputJSON)
 					
-					// TODO: Fix Input field creation - currently broken
+					var args map[string]any
+					if inputJSON != "" {
+						if err := json.Unmarshal([]byte(inputJSON), &args); err != nil {
+							klog.V(2).Infof("Failed to parse tool input: %v", err)
+							args = make(map[string]any)
+						}
+					} else {
+						args = make(map[string]any)
+					}
+					
+					// Create ToolUseBlock for conversation history
 					toolUse := types.ToolUseBlock{
 						ToolUseId: aws.String(partial.id),
 						Name:      aws.String(partial.name),
-						// Input: ??? - This is the problem
+						// Input: nil - we'll use parsed args instead
 					}
 					completedTools = append(completedTools, toolUse)
 					
-					// Yield tool immediately (like text deltas)
+					// Yield tool immediately with parsed arguments for AsFunctionCalls()
 					response := &bedrockStreamResponse{
-						content:  "",
-						model:    c.model,
-						done:     false,
-						toolUses: []types.ToolUseBlock{toolUse},
+						content:     "",
+						model:       c.model,
+						done:        false,
+						toolUses:    []types.ToolUseBlock{toolUse},
+						streamingArgs: map[int]map[string]any{0: args}, // Pass parsed args by index
 					}
 					if !yield(response, nil) {
 						return
@@ -626,11 +631,12 @@ func (r *bedrockResponse) Candidates() []Candidate {
 
 // bedrockStreamResponse implements ChatResponse for streaming responses
 type bedrockStreamResponse struct {
-	content  string
-	usage    *types.TokenUsage
-	model    string
-	done     bool
-	toolUses []types.ToolUseBlock
+	content       string
+	usage         *types.TokenUsage
+	model         string
+	done          bool
+	toolUses      []types.ToolUseBlock
+	streamingArgs map[int]map[string]any // Maps tool index to parsed arguments
 }
 
 // UsageMetadata returns the usage metadata from the streaming response
@@ -645,9 +651,10 @@ func (r *bedrockStreamResponse) Candidates() []Candidate {
 	}
 
 	candidate := &bedrockStreamCandidate{
-		content:  r.content,
-		model:    r.model,
-		toolUses: r.toolUses,
+		content:       r.content,
+		model:         r.model,
+		toolUses:      r.toolUses,
+		streamingArgs: r.streamingArgs,
 	}
 	return []Candidate{candidate}
 }
@@ -737,9 +744,10 @@ func (c *bedrockCandidate) Parts() []Part {
 
 // bedrockStreamCandidate implements Candidate for streaming responses
 type bedrockStreamCandidate struct {
-	content  string
-	model    string
-	toolUses []types.ToolUseBlock
+	content       string
+	model         string
+	toolUses      []types.ToolUseBlock
+	streamingArgs map[int]map[string]any
 }
 
 // String returns a string representation of the streaming candidate
@@ -756,9 +764,16 @@ func (c *bedrockStreamCandidate) Parts() []Part {
 		parts = append(parts, &bedrockTextPart{text: c.content})
 	}
 	
-	// Handle tool calls (mirror non-streaming pattern)
-	for _, toolUse := range c.toolUses {
-		parts = append(parts, &bedrockToolPart{toolUse: &toolUse})
+	// Handle tool calls with streaming args
+	for i, toolUse := range c.toolUses {
+		var args map[string]any
+		if c.streamingArgs != nil {
+			args = c.streamingArgs[i] // Get parsed args for this tool index
+		}
+		parts = append(parts, &bedrockToolPart{
+			toolUse: &toolUse,
+			args:    args, // Pass the parsed arguments
+		})
 	}
 	
 	return parts
@@ -782,6 +797,7 @@ func (p *bedrockTextPart) AsFunctionCalls() ([]FunctionCall, bool) {
 // bedrockToolPart implements Part for tool/function calls
 type bedrockToolPart struct {
 	toolUse *types.ToolUseBlock
+	args    map[string]any // For streaming case when Input can't be unmarshaled
 }
 
 // AsText returns empty string since this is a tool part
@@ -795,13 +811,19 @@ func (p *bedrockToolPart) AsFunctionCalls() ([]FunctionCall, bool) {
 		return nil, false
 	}
 
-	// Convert AWS tool use to gollm function call
+	// Get arguments - prefer pre-parsed args (streaming), fall back to unmarshaling
 	var args map[string]any
-	if p.toolUse.Input != nil {
+	if p.args != nil {
+		// Streaming case - use pre-parsed arguments
+		args = p.args
+	} else if p.toolUse.Input != nil {
+		// Non-streaming case - unmarshal from Input
 		if err := p.toolUse.Input.UnmarshalSmithyDocument(&args); err != nil {
-			klog.Errorf("Failed to unmarshal tool input: %v", err)
+			klog.V(2).Infof("Failed to unmarshal tool input: %v", err)
 			args = make(map[string]any)
 		}
+	} else {
+		args = make(map[string]any)
 	}
 
 	funcCall := FunctionCall{
@@ -834,6 +856,7 @@ func getBedrockModel(model string) string {
 	klog.V(1).Infof("Using default model: %s", defaultModel)
 	return defaultModel
 }
+
 
 // bedrockCompletionResponse wraps a ChatResponse to implement CompletionResponse
 type bedrockCompletionResponse struct {

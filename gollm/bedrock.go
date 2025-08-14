@@ -82,8 +82,6 @@ func (c *BedrockClient) Close() error {
 func (c *BedrockClient) StartChat(systemPrompt, model string) Chat {
 	selectedModel := getBedrockModel(model)
 
-	klog.V(1).Infof("Starting new Bedrock chat session with model: %s", selectedModel)
-
 	// Enhance system prompt for tool-use shim compatibility
 	// Detect if tool-use shim is enabled by looking for JSON formatting instructions
 	enhancedPrompt := systemPrompt
@@ -96,8 +94,6 @@ func (c *BedrockClient) StartChat(systemPrompt, model string) Chat {
 		enhancedPrompt += "4. This is critical for proper parsing. Example format:\n"
 		enhancedPrompt += "```json\n{\"thought\": \"your reasoning\", \"action\": {\"name\": \"tool_name\", \"command\": \"command\"}}\n```\n"
 		enhancedPrompt += "Note the comma after the \"thought\" field! Malformed JSON will cause failures."
-
-		klog.V(2).Infof("Enhanced Bedrock prompt with JSON formatting instructions for model: %s", selectedModel)
 	}
 
 	return &bedrockChat{
@@ -146,7 +142,50 @@ type bedrockChat struct {
 }
 
 func (cs *bedrockChat) Initialize(history []*api.Message) error {
-	return fmt.Errorf("Initialize not yet implemented for bedrock")
+	cs.messages = make([]types.Message, 0, len(history))
+
+	for _, msg := range history {
+		// Convert api.Message to types.Message
+		var role types.ConversationRole
+		switch msg.Source {
+		case api.MessageSourceUser:
+			role = types.ConversationRoleUser
+		case api.MessageSourceModel, api.MessageSourceAgent:
+			role = types.ConversationRoleAssistant
+		default:
+			// Skip unknown message sources
+			continue
+		}
+
+		// Convert payload to string content
+		var content string
+		if msg.Type == api.MessageTypeText && msg.Payload != nil {
+			if textPayload, ok := msg.Payload.(string); ok {
+				content = textPayload
+			} else {
+				// Try to convert other types to string
+				content = fmt.Sprintf("%v", msg.Payload)
+			}
+		} else {
+			// Skip non-text messages for now
+			continue
+		}
+
+		if content == "" {
+			continue
+		}
+
+		bedrockMsg := types.Message{
+			Role: role,
+			Content: []types.ContentBlock{
+				&types.ContentBlockMemberText{Value: content},
+			},
+		}
+
+		cs.messages = append(cs.messages, bedrockMsg)
+	}
+
+	return nil
 }
 
 // Send sends a message to the chat and returns the response
@@ -356,6 +395,9 @@ func (c *bedrockChat) SetFunctionDefinitions(functions []*FunctionDefinition) er
 
 	c.toolConfig = &types.ToolConfiguration{
 		Tools: tools,
+		ToolChoice: &types.ToolChoiceMemberAny{
+			Value: types.AnyToolChoice{},
+		},
 	}
 
 	return nil

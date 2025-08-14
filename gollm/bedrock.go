@@ -142,50 +142,7 @@ type bedrockChat struct {
 }
 
 func (cs *bedrockChat) Initialize(history []*api.Message) error {
-	cs.messages = make([]types.Message, 0, len(history))
-
-	for _, msg := range history {
-		// Convert api.Message to types.Message
-		var role types.ConversationRole
-		switch msg.Source {
-		case api.MessageSourceUser:
-			role = types.ConversationRoleUser
-		case api.MessageSourceModel, api.MessageSourceAgent:
-			role = types.ConversationRoleAssistant
-		default:
-			// Skip unknown message sources
-			continue
-		}
-
-		// Convert payload to string content
-		var content string
-		if msg.Type == api.MessageTypeText && msg.Payload != nil {
-			if textPayload, ok := msg.Payload.(string); ok {
-				content = textPayload
-			} else {
-				// Try to convert other types to string
-				content = fmt.Sprintf("%v", msg.Payload)
-			}
-		} else {
-			// Skip non-text messages for now
-			continue
-		}
-
-		if content == "" {
-			continue
-		}
-
-		bedrockMsg := types.Message{
-			Role: role,
-			Content: []types.ContentBlock{
-				&types.ContentBlockMemberText{Value: content},
-			},
-		}
-
-		cs.messages = append(cs.messages, bedrockMsg)
-	}
-
-	return nil
+	return fmt.Errorf("Initialize not yet implemented for bedrock")
 }
 
 // Send sends a message to the chat and returns the response

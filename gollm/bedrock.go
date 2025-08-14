@@ -334,9 +334,21 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		assistantMessage.Role = types.ConversationRoleAssistant
 		var fullContent strings.Builder
 
+		// Tool state tracking for streaming
+		type partialTool struct {
+			id    string
+			name  string
+			input strings.Builder
+		}
+		partialTools := make(map[int32]*partialTool)
+		var completedTools []types.ToolUseBlock
+
 		// Process streaming events
 		stream := output.GetStream()
 		for event := range stream.Events() {
+			// Debug: log all event types
+			klog.V(3).Infof("[BEDROCK-FUNCTION-DEBUG] Streaming event type: %T", event)
+			
 			switch v := event.(type) {
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
 				// Handle text deltas
@@ -354,6 +366,21 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 					}
 				}
 
+				// Handle tool input deltas
+				if toolDelta, ok := v.Value.Delta.(*types.ContentBlockDeltaMemberToolUse); ok {
+					idx := aws.ToInt32(v.Value.ContentBlockIndex)
+					if partial, exists := partialTools[idx]; exists {
+						deltaInput := aws.ToString(toolDelta.Value.Input)
+						partial.input.WriteString(deltaInput)
+						klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input delta for %s (idx %d): '%s'", partial.name, idx, deltaInput)
+					} else {
+						klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Received tool delta for unknown index %d", idx)
+					}
+				} else {
+					// Log what type of delta we actually got
+					klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] ContentBlockDelta type: %T", v.Value.Delta)
+				}
+
 			case *types.ConverseStreamOutputMemberContentBlockStart:
 				// Handle content block start (for tool calls)
 				if v.Value.Start != nil {
@@ -363,7 +390,46 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 					if toolStart, ok := v.Value.Start.(*types.ContentBlockStartMemberToolUse); ok {
 						klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ STREAMING TOOL USE STARTED - ID: %s, Name: %s",
 							aws.ToString(toolStart.Value.ToolUseId), aws.ToString(toolStart.Value.Name))
+						
+						// Store partial tool for input accumulation
+						idx := aws.ToInt32(v.Value.ContentBlockIndex)
+						partialTools[idx] = &partialTool{
+							id:   aws.ToString(toolStart.Value.ToolUseId),
+							name: aws.ToString(toolStart.Value.Name),
+						}
 					}
+				}
+
+			case *types.ConverseStreamOutputMemberContentBlockStop:
+				// Handle content block stop (tool completion)
+				idx := aws.ToInt32(v.Value.ContentBlockIndex)
+				if partial, exists := partialTools[idx]; exists {
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ TOOL COMPLETED - ID: %s, Name: %s", partial.id, partial.name)
+					
+					// Create complete ToolUseBlock
+					inputJSON := partial.input.String()
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input JSON for %s: '%s'", partial.name, inputJSON)
+					
+					// TODO: Fix Input field creation - currently broken
+					toolUse := types.ToolUseBlock{
+						ToolUseId: aws.String(partial.id),
+						Name:      aws.String(partial.name),
+						// Input: ??? - This is the problem
+					}
+					completedTools = append(completedTools, toolUse)
+					
+					// Yield tool immediately (like text deltas)
+					response := &bedrockStreamResponse{
+						content:  "",
+						model:    c.model,
+						done:     false,
+						toolUses: []types.ToolUseBlock{toolUse},
+					}
+					if !yield(response, nil) {
+						return
+					}
+					
+					delete(partialTools, idx)
 				}
 
 			case *types.ConverseStreamOutputMemberMetadata:
@@ -384,6 +450,16 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		if fullContent.Len() > 0 {
 			assistantMessage.Content = append(assistantMessage.Content,
 				&types.ContentBlockMemberText{Value: fullContent.String()})
+		}
+		
+		// Include completed tools in conversation history
+		for _, tool := range completedTools {
+			assistantMessage.Content = append(assistantMessage.Content,
+				&types.ContentBlockMemberToolUse{Value: tool})
+		}
+		
+		// Only add to history if there's content or tools
+		if len(assistantMessage.Content) > 0 {
 			c.messages = append(c.messages, assistantMessage)
 		}
 
@@ -550,10 +626,11 @@ func (r *bedrockResponse) Candidates() []Candidate {
 
 // bedrockStreamResponse implements ChatResponse for streaming responses
 type bedrockStreamResponse struct {
-	content string
-	usage   *types.TokenUsage
-	model   string
-	done    bool
+	content  string
+	usage    *types.TokenUsage
+	model    string
+	done     bool
+	toolUses []types.ToolUseBlock
 }
 
 // UsageMetadata returns the usage metadata from the streaming response
@@ -563,13 +640,14 @@ func (r *bedrockStreamResponse) UsageMetadata() any {
 
 // Candidates returns the candidate responses for streaming
 func (r *bedrockStreamResponse) Candidates() []Candidate {
-	if r.content == "" && r.usage == nil {
+	if r.content == "" && r.usage == nil && len(r.toolUses) == 0 {
 		return []Candidate{}
 	}
 
 	candidate := &bedrockStreamCandidate{
-		content: r.content,
-		model:   r.model,
+		content:  r.content,
+		model:    r.model,
+		toolUses: r.toolUses,
 	}
 	return []Candidate{candidate}
 }
@@ -620,7 +698,22 @@ func (c *bedrockCandidate) Parts() []Part {
 
 			// Log input parameters if present
 			if v.Value.Input != nil {
-				klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Tool input: %+v", v.Value.Input)
+				klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input type: %T", v.Value.Input)
+				klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input value: %+v", v.Value.Input)
+				
+				// Try to unmarshal to see what's inside
+				var testMap map[string]any
+				if err := v.Value.Input.UnmarshalSmithyDocument(&testMap); err != nil {
+					klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Can't unmarshal as map: %v", err)
+					var testInterface interface{}
+					if err2 := v.Value.Input.UnmarshalSmithyDocument(&testInterface); err2 != nil {
+						klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Can't unmarshal as interface: %v", err2)
+					} else {
+						klog.Infof("[BEDROCK-FUNCTION-DEBUG] Unmarshalled as interface{} type %T: %v", testInterface, testInterface)
+					}
+				} else {
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Successfully unmarshalled as map: %v", testMap)
+				}
 			}
 
 			parts = append(parts, &bedrockToolPart{toolUse: &v.Value})
@@ -644,8 +737,9 @@ func (c *bedrockCandidate) Parts() []Part {
 
 // bedrockStreamCandidate implements Candidate for streaming responses
 type bedrockStreamCandidate struct {
-	content string
-	model   string
+	content  string
+	model    string
+	toolUses []types.ToolUseBlock
 }
 
 // String returns a string representation of the streaming candidate
@@ -655,10 +749,19 @@ func (c *bedrockStreamCandidate) String() string {
 
 // Parts returns the parts of the streaming candidate
 func (c *bedrockStreamCandidate) Parts() []Part {
-	if c.content == "" {
-		return []Part{}
+	var parts []Part
+	
+	// Handle text content
+	if c.content != "" {
+		parts = append(parts, &bedrockTextPart{text: c.content})
 	}
-	return []Part{&bedrockTextPart{text: c.content}}
+	
+	// Handle tool calls (mirror non-streaming pattern)
+	for _, toolUse := range c.toolUses {
+		parts = append(parts, &bedrockToolPart{toolUse: &toolUse})
+	}
+	
+	return parts
 }
 
 // bedrockTextPart implements Part for text content

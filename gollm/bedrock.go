@@ -142,7 +142,50 @@ type bedrockChat struct {
 }
 
 func (cs *bedrockChat) Initialize(history []*api.Message) error {
-	return fmt.Errorf("Initialize not yet implemented for bedrock")
+	cs.messages = make([]types.Message, 0, len(history))
+
+	for _, msg := range history {
+		// Convert api.Message to types.Message
+		var role types.ConversationRole
+		switch msg.Source {
+		case api.MessageSourceUser:
+			role = types.ConversationRoleUser
+		case api.MessageSourceModel, api.MessageSourceAgent:
+			role = types.ConversationRoleAssistant
+		default:
+			// Skip unknown message sources
+			continue
+		}
+
+		// Convert payload to string content
+		var content string
+		if msg.Type == api.MessageTypeText && msg.Payload != nil {
+			if textPayload, ok := msg.Payload.(string); ok {
+				content = textPayload
+			} else {
+				// Try to convert other types to string
+				content = fmt.Sprintf("%v", msg.Payload)
+			}
+		} else {
+			// Skip non-text messages for now
+			continue
+		}
+
+		if content == "" {
+			continue
+		}
+
+		bedrockMsg := types.Message{
+			Role: role,
+			Content: []types.ContentBlock{
+				&types.ContentBlockMemberText{Value: content},
+			},
+		}
+
+		cs.messages = append(cs.messages, bedrockMsg)
+	}
+
+	return nil
 }
 
 // Send sends a message to the chat and returns the response
@@ -151,16 +194,10 @@ func (c *bedrockChat) Send(ctx context.Context, contents ...any) (ChatResponse, 
 		return nil, errors.New("no content provided")
 	}
 
-	// Convert content to string
-	message := fmt.Sprintf("%v", contents[0])
-
-	// Add user message to conversation history
-	c.messages = append(c.messages, types.Message{
-		Role: types.ConversationRoleUser,
-		Content: []types.ContentBlock{
-			&types.ContentBlockMemberText{Value: message},
-		},
-	})
+	// Process and append contents to conversation history
+	if err := c.addContentsToHistory(contents); err != nil {
+		return nil, err
+	}
 
 	// Prepare the request
 	input := &bedrockruntime.ConverseInput{
@@ -211,16 +248,10 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		return nil, errors.New("no content provided")
 	}
 
-	// Convert content to string
-	message := fmt.Sprintf("%v", contents[0])
-
-	// Add user message to conversation history
-	c.messages = append(c.messages, types.Message{
-		Role: types.ConversationRoleUser,
-		Content: []types.ContentBlock{
-			&types.ContentBlockMemberText{Value: message},
-		},
-	})
+	// Process and append contents to conversation history
+	if err := c.addContentsToHistory(contents); err != nil {
+		return nil, err
+	}
 
 	// Prepare the streaming request
 	input := &bedrockruntime.ConverseStreamInput{
@@ -329,9 +360,11 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 					}
 					
 					// Create ToolUseBlock for conversation history
+					// Use the accumulated JSON string to create proper Input document
 					toolUse := types.ToolUseBlock{
 						ToolUseId: aws.String(partial.id),
 						Name:      aws.String(partial.name),
+						Input:     document.NewLazyDocument(args),
 					}
 					completedTools = append(completedTools, toolUse)
 					
@@ -386,6 +419,44 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 			yield(nil, fmt.Errorf("stream error: %w", err))
 		}
 	}, nil
+}
+
+// addContentsToHistory processes and appends user messages to chat history
+// following AWS Bedrock Converse API patterns
+func (c *bedrockChat) addContentsToHistory(contents []any) error {
+	var contentBlocks []types.ContentBlock
+	
+	for _, content := range contents {
+		switch c := content.(type) {
+		case string:
+			// Add text content block
+			contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: c})
+		case FunctionCallResult:
+			// Convert to AWS Bedrock ToolResultBlock format per official docs
+			toolResult := types.ToolResultBlock{
+				ToolUseId: aws.String(c.ID),
+				Content: []types.ToolResultContentBlock{
+					&types.ToolResultContentBlockMemberJson{
+						Value: document.NewLazyDocument(c.Result),
+					},
+				},
+				Status: types.ToolResultStatusSuccess,
+			}
+			contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolResult{Value: toolResult})
+		default:
+			return fmt.Errorf("unhandled content type: %T", content)
+		}
+	}
+	
+	if len(contentBlocks) > 0 {
+		// Add user message with all content blocks to conversation history
+		c.messages = append(c.messages, types.Message{
+			Role:    types.ConversationRoleUser,
+			Content: contentBlocks,
+		})
+	}
+	
+	return nil
 }
 
 // SetFunctionDefinitions configures the available functions for tool use

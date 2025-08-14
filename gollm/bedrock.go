@@ -194,16 +194,10 @@ func (c *bedrockChat) Send(ctx context.Context, contents ...any) (ChatResponse, 
 		return nil, errors.New("no content provided")
 	}
 
-	// Convert content to string
-	message := fmt.Sprintf("%v", contents[0])
-
-	// Add user message to conversation history
-	c.messages = append(c.messages, types.Message{
-		Role: types.ConversationRoleUser,
-		Content: []types.ContentBlock{
-			&types.ContentBlockMemberText{Value: message},
-		},
-	})
+	// Process and append messages to history
+	if err := c.addContentsToHistory(contents); err != nil {
+		return nil, err
+	}
 
 	// Prepare the request
 	input := &bedrockruntime.ConverseInput{
@@ -221,15 +215,56 @@ func (c *bedrockChat) Send(ctx context.Context, contents ...any) (ChatResponse, 
 		}
 	}
 
-	// Add tool configuration if functions are defined
+	// PHASE 2: Request Configuration Validation
 	if c.toolConfig != nil {
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] Configuring %d function definitions for model: %s",
+			len(c.functionDefs), c.model)
+
+		// Log tool names being configured
+		var toolNames []string
+		for _, tool := range c.toolConfig.Tools {
+			if toolSpec, ok := tool.(*types.ToolMemberToolSpec); ok {
+				if toolSpec.Value.Name != nil {
+					toolNames = append(toolNames, *toolSpec.Value.Name)
+				}
+			}
+		}
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool names: %v", toolNames)
+
 		input.ToolConfig = c.toolConfig
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ ToolConfig set with ToolChoice: %T", c.toolConfig.ToolChoice)
+
+		// Log first tool structure for validation
+		if len(c.toolConfig.Tools) > 0 {
+			klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Sample tool structure: %+v", c.toolConfig.Tools[0])
+		}
+	} else if len(c.functionDefs) > 0 {
+		klog.Errorf("[BEDROCK-FUNCTION-DEBUG] ❌ Function definitions exist but toolConfig is nil")
+	} else {
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] No function definitions available")
+	}
+
+	// PHASE 4: Model and API Response Validation
+	klog.Infof("[BEDROCK-FUNCTION-DEBUG] Sending request to model: %s", c.model)
+	klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Request has ToolConfig: %t", input.ToolConfig != nil)
+	if input.ToolConfig != nil {
+		klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] ToolConfig has %d tools", len(input.ToolConfig.Tools))
 	}
 
 	// Call the Bedrock Converse API
 	output, err := c.client.client.Converse(ctx, input)
 	if err != nil {
+		klog.Errorf("[BEDROCK-FUNCTION-DEBUG] ❌ Converse API error: %v", err)
 		return nil, fmt.Errorf("bedrock converse error: %w", err)
+	}
+
+	// After successful response
+	klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ Received response from Bedrock")
+	klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Raw output type: %T", output.Output)
+
+	// Log stop reason if available
+	if output.StopReason != "" {
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] Stop reason: %s", string(output.StopReason))
 	}
 
 	// Extract response content and update conversation history
@@ -254,16 +289,10 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		return nil, errors.New("no content provided")
 	}
 
-	// Convert content to string
-	message := fmt.Sprintf("%v", contents[0])
-
-	// Add user message to conversation history
-	c.messages = append(c.messages, types.Message{
-		Role: types.ConversationRoleUser,
-		Content: []types.ContentBlock{
-			&types.ContentBlockMemberText{Value: message},
-		},
-	})
+	// Process and append messages to history
+	if err := c.addContentsToHistory(contents); err != nil {
+		return nil, err
+	}
 
 	// Prepare the streaming request
 	input := &bedrockruntime.ConverseStreamInput{
@@ -281,8 +310,9 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		}
 	}
 
-	// Add tool configuration if functions are defined
+	// Add tool configuration if functions are defined (streaming)
 	if c.toolConfig != nil {
+		klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Adding tool config to streaming request")
 		input.ToolConfig = c.toolConfig
 	}
 
@@ -304,9 +334,21 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		assistantMessage.Role = types.ConversationRoleAssistant
 		var fullContent strings.Builder
 
+		// Tool state tracking for streaming
+		type partialTool struct {
+			id    string
+			name  string
+			input strings.Builder
+		}
+		partialTools := make(map[int32]*partialTool)
+		var completedTools []types.ToolUseBlock
+
 		// Process streaming events
 		stream := output.GetStream()
 		for event := range stream.Events() {
+			// Debug: log all event types
+			klog.V(3).Infof("[BEDROCK-FUNCTION-DEBUG] Streaming event type: %T", event)
+			
 			switch v := event.(type) {
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
 				// Handle text deltas
@@ -324,10 +366,70 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 					}
 				}
 
+				// Handle tool input deltas
+				if toolDelta, ok := v.Value.Delta.(*types.ContentBlockDeltaMemberToolUse); ok {
+					idx := aws.ToInt32(v.Value.ContentBlockIndex)
+					if partial, exists := partialTools[idx]; exists {
+						deltaInput := aws.ToString(toolDelta.Value.Input)
+						partial.input.WriteString(deltaInput)
+						klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input delta for %s (idx %d): '%s'", partial.name, idx, deltaInput)
+					} else {
+						klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Received tool delta for unknown index %d", idx)
+					}
+				} else {
+					// Log what type of delta we actually got
+					klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] ContentBlockDelta type: %T", v.Value.Delta)
+				}
+
 			case *types.ConverseStreamOutputMemberContentBlockStart:
 				// Handle content block start (for tool calls)
 				if v.Value.Start != nil {
 					klog.V(3).Infof("Content block started at index: %v", aws.ToInt32(v.Value.ContentBlockIndex))
+					// BEDROCK DEBUG: Log what type of content block is starting
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Content block start - Type: %T", v.Value.Start)
+					if toolStart, ok := v.Value.Start.(*types.ContentBlockStartMemberToolUse); ok {
+						klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ STREAMING TOOL USE STARTED - ID: %s, Name: %s",
+							aws.ToString(toolStart.Value.ToolUseId), aws.ToString(toolStart.Value.Name))
+						
+						// Store partial tool for input accumulation
+						idx := aws.ToInt32(v.Value.ContentBlockIndex)
+						partialTools[idx] = &partialTool{
+							id:   aws.ToString(toolStart.Value.ToolUseId),
+							name: aws.ToString(toolStart.Value.Name),
+						}
+					}
+				}
+
+			case *types.ConverseStreamOutputMemberContentBlockStop:
+				// Handle content block stop (tool completion)
+				idx := aws.ToInt32(v.Value.ContentBlockIndex)
+				if partial, exists := partialTools[idx]; exists {
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ TOOL COMPLETED - ID: %s, Name: %s", partial.id, partial.name)
+					
+					// Create complete ToolUseBlock
+					inputJSON := partial.input.String()
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input JSON for %s: '%s'", partial.name, inputJSON)
+					
+					// TODO: Fix Input field creation - currently broken
+					toolUse := types.ToolUseBlock{
+						ToolUseId: aws.String(partial.id),
+						Name:      aws.String(partial.name),
+						// Input: ??? - This is the problem
+					}
+					completedTools = append(completedTools, toolUse)
+					
+					// Yield tool immediately (like text deltas)
+					response := &bedrockStreamResponse{
+						content:  "",
+						model:    c.model,
+						done:     false,
+						toolUses: []types.ToolUseBlock{toolUse},
+					}
+					if !yield(response, nil) {
+						return
+					}
+					
+					delete(partialTools, idx)
 				}
 
 			case *types.ConverseStreamOutputMemberMetadata:
@@ -348,6 +450,16 @@ func (c *bedrockChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 		if fullContent.Len() > 0 {
 			assistantMessage.Content = append(assistantMessage.Content,
 				&types.ContentBlockMemberText{Value: fullContent.String()})
+		}
+		
+		// Include completed tools in conversation history
+		for _, tool := range completedTools {
+			assistantMessage.Content = append(assistantMessage.Content,
+				&types.ContentBlockMemberToolUse{Value: tool})
+		}
+		
+		// Only add to history if there's content or tools
+		if len(assistantMessage.Content) > 0 {
 			c.messages = append(c.messages, assistantMessage)
 		}
 
@@ -367,19 +479,40 @@ func (c *bedrockChat) SetFunctionDefinitions(functions []*FunctionDefinition) er
 		return nil
 	}
 
+	// PHASE 3: Tool Schema Conversion Analysis
+	klog.Infof("[BEDROCK-FUNCTION-DEBUG] Converting %d function definitions to Bedrock tools", len(functions))
+
 	var tools []types.Tool
-	for _, fn := range functions {
+	for i, fn := range functions {
+		if fn == nil {
+			klog.Warningf("[BEDROCK-FUNCTION-DEBUG] Null function definition encountered at index %d", i)
+			continue
+		}
+
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] Processing tool: %s", fn.Name)
+		klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Tool description: %s", fn.Description)
+
 		// Convert gollm function definition to AWS tool specification
 		inputSchema := make(map[string]interface{})
 		if fn.Parameters != nil {
+			klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Original parameters for %s: %+v",
+				fn.Name, fn.Parameters)
+
 			// Convert Schema to map[string]interface{}
 			jsonData, err := json.Marshal(fn.Parameters)
 			if err != nil {
+				klog.Errorf("[BEDROCK-FUNCTION-DEBUG] ❌ Failed to marshal parameters for %s: %v", fn.Name, err)
 				return fmt.Errorf("failed to marshal function parameters: %w", err)
 			}
 			if err := json.Unmarshal(jsonData, &inputSchema); err != nil {
+				klog.Errorf("[BEDROCK-FUNCTION-DEBUG] ❌ Failed to unmarshal parameters for %s: %v", fn.Name, err)
 				return fmt.Errorf("failed to unmarshal function parameters: %w", err)
 			}
+
+			klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Converted schema for %s: %+v",
+				fn.Name, inputSchema)
+		} else {
+			klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool %s has no parameters", fn.Name)
 		}
 
 		toolSpec := types.ToolSpecification{
@@ -390,7 +523,14 @@ func (c *bedrockChat) SetFunctionDefinitions(functions []*FunctionDefinition) er
 			},
 		}
 
+		klog.V(2).Infof("[BEDROCK-FUNCTION-DEBUG] Schema document created for %s", fn.Name)
 		tools = append(tools, &types.ToolMemberToolSpec{Value: toolSpec})
+	}
+
+	if len(tools) == 0 {
+		klog.Errorf("[BEDROCK-FUNCTION-DEBUG] ❌ No valid tools created from %d function definitions", len(functions))
+		c.toolConfig = nil
+		return nil
 	}
 
 	c.toolConfig = &types.ToolConfiguration{
@@ -400,12 +540,57 @@ func (c *bedrockChat) SetFunctionDefinitions(functions []*FunctionDefinition) er
 		},
 	}
 
+	klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ Successfully created ToolConfiguration with %d tools", len(tools))
 	return nil
 }
 
 // IsRetryableError determines if an error is retryable
 func (c *bedrockChat) IsRetryableError(err error) bool {
 	return DefaultIsRetryableError(err)
+}
+
+// addContentsToHistory processes and appends contents to conversation history
+func (c *bedrockChat) addContentsToHistory(contents []any) error {
+	for _, content := range contents {
+		switch v := content.(type) {
+		case string:
+			c.messages = append(c.messages, types.Message{
+				Role: types.ConversationRoleUser,
+				Content: []types.ContentBlock{
+					&types.ContentBlockMemberText{Value: v},
+				},
+			})
+			
+		case FunctionCallResult:
+			// Convert FunctionCallResult to AWS Bedrock ToolResultBlock format
+			toolResultBlock := &types.ContentBlockMemberToolResult{
+				Value: types.ToolResultBlock{
+					ToolUseId: aws.String(v.ID),
+					Content: []types.ToolResultContentBlock{
+						&types.ToolResultContentBlockMemberJson{
+							Value: document.NewLazyDocument(v.Result),
+						},
+					},
+				},
+			}
+			
+			c.messages = append(c.messages, types.Message{
+				Role:    types.ConversationRoleUser,
+				Content: []types.ContentBlock{toolResultBlock},
+			})
+			
+		default:
+			// Fallback to string conversion for backward compatibility
+			c.messages = append(c.messages, types.Message{
+				Role: types.ConversationRoleUser,
+				Content: []types.ContentBlock{
+					&types.ContentBlockMemberText{Value: fmt.Sprintf("%v", content)},
+				},
+			})
+		}
+	}
+	
+	return nil
 }
 
 // bedrockResponse implements ChatResponse for regular (non-streaming) responses
@@ -441,10 +626,11 @@ func (r *bedrockResponse) Candidates() []Candidate {
 
 // bedrockStreamResponse implements ChatResponse for streaming responses
 type bedrockStreamResponse struct {
-	content string
-	usage   *types.TokenUsage
-	model   string
-	done    bool
+	content  string
+	usage    *types.TokenUsage
+	model    string
+	done     bool
+	toolUses []types.ToolUseBlock
 }
 
 // UsageMetadata returns the usage metadata from the streaming response
@@ -454,13 +640,14 @@ func (r *bedrockStreamResponse) UsageMetadata() any {
 
 // Candidates returns the candidate responses for streaming
 func (r *bedrockStreamResponse) Candidates() []Candidate {
-	if r.content == "" && r.usage == nil {
+	if r.content == "" && r.usage == nil && len(r.toolUses) == 0 {
 		return []Candidate{}
 	}
 
 	candidate := &bedrockStreamCandidate{
-		content: r.content,
-		model:   r.model,
+		content:  r.content,
+		model:    r.model,
+		toolUses: r.toolUses,
 	}
 	return []Candidate{candidate}
 }
@@ -492,22 +679,67 @@ func (c *bedrockCandidate) Parts() []Part {
 		return []Part{}
 	}
 
+	// PHASE 1: Response Content Block Analysis
+	klog.Infof("[BEDROCK-FUNCTION-DEBUG] Processing %d content blocks from Bedrock response", len(c.message.Content))
+
 	var parts []Part
-	for _, block := range c.message.Content {
+	for i, block := range c.message.Content {
+		// CRITICAL: Log actual content block types received from Bedrock
+		klog.Infof("[BEDROCK-FUNCTION-DEBUG] Content block %d type: %T", i, block)
+
 		switch v := block.(type) {
 		case *types.ContentBlockMemberText:
+			klog.Infof("[BEDROCK-FUNCTION-DEBUG] Text content: %.200s...", v.Value)
 			parts = append(parts, &bedrockTextPart{text: v.Value})
+
 		case *types.ContentBlockMemberToolUse:
+			klog.Infof("[BEDROCK-FUNCTION-DEBUG] ✅ TOOL USE DETECTED - ID: %s, Name: %s",
+				aws.ToString(v.Value.ToolUseId), aws.ToString(v.Value.Name))
+
+			// Log input parameters if present
+			if v.Value.Input != nil {
+				klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input type: %T", v.Value.Input)
+				klog.Infof("[BEDROCK-FUNCTION-DEBUG] Tool input value: %+v", v.Value.Input)
+				
+				// Try to unmarshal to see what's inside
+				var testMap map[string]any
+				if err := v.Value.Input.UnmarshalSmithyDocument(&testMap); err != nil {
+					klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Can't unmarshal as map: %v", err)
+					var testInterface interface{}
+					if err2 := v.Value.Input.UnmarshalSmithyDocument(&testInterface); err2 != nil {
+						klog.Errorf("[BEDROCK-FUNCTION-DEBUG] Can't unmarshal as interface: %v", err2)
+					} else {
+						klog.Infof("[BEDROCK-FUNCTION-DEBUG] Unmarshalled as interface{} type %T: %v", testInterface, testInterface)
+					}
+				} else {
+					klog.Infof("[BEDROCK-FUNCTION-DEBUG] Successfully unmarshalled as map: %v", testMap)
+				}
+			}
+
 			parts = append(parts, &bedrockToolPart{toolUse: &v.Value})
+
+		default:
+			klog.Errorf("[BEDROCK-FUNCTION-DEBUG] ❌ UNKNOWN CONTENT TYPE: %T, Value: %+v", block, block)
 		}
 	}
+
+	// Log final tool calls count
+	var toolCallCount int
+	for _, part := range parts {
+		if _, isToolPart := part.(*bedrockToolPart); isToolPart {
+			toolCallCount++
+		}
+	}
+	klog.Infof("[BEDROCK-FUNCTION-DEBUG] Total tool calls extracted: %d", toolCallCount)
+
 	return parts
 }
 
 // bedrockStreamCandidate implements Candidate for streaming responses
 type bedrockStreamCandidate struct {
-	content string
-	model   string
+	content  string
+	model    string
+	toolUses []types.ToolUseBlock
 }
 
 // String returns a string representation of the streaming candidate
@@ -517,10 +749,19 @@ func (c *bedrockStreamCandidate) String() string {
 
 // Parts returns the parts of the streaming candidate
 func (c *bedrockStreamCandidate) Parts() []Part {
-	if c.content == "" {
-		return []Part{}
+	var parts []Part
+	
+	// Handle text content
+	if c.content != "" {
+		parts = append(parts, &bedrockTextPart{text: c.content})
 	}
-	return []Part{&bedrockTextPart{text: c.content}}
+	
+	// Handle tool calls (mirror non-streaming pattern)
+	for _, toolUse := range c.toolUses {
+		parts = append(parts, &bedrockToolPart{toolUse: &toolUse})
+	}
+	
+	return parts
 }
 
 // bedrockTextPart implements Part for text content

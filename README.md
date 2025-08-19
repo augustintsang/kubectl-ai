@@ -442,10 +442,10 @@ Comprehensive evaluation on identical 10-task Kubernetes benchmark with proper C
 
 | Model | Success | Fail | Success Rate |
 |-------|---------|------|--------------|
-| **AWS Bedrock Claude 3.7 Sonnet** | **10** | **0** | **100%** |
-| **AWS Bedrock Claude Sonnet 4** | **10** | **0** | **100%** |
 | gemini-2.5-flash-preview-04-17 | 10 | 0 | 100% |
 | gemini-2.5-pro-preview-03-25 | 10 | 0 | 100% |
+| AWS Bedrock Claude 3.7 Sonnet | 10 | 0 | 100% |
+| AWS Bedrock Claude Sonnet 4 | 10 | 0 | 100% |
 | gemma-3-27b-it | 8 | 2 | 80% |
 
 **Test Environment**: Kind cluster v1.27.3 with Calico CNI (full NetworkPolicy support)  

@@ -432,6 +432,24 @@ func (c *bedrockChat) addContentsToHistory(contents []any) error {
 			// Add text content block
 			contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: c})
 		case FunctionCallResult:
+			// Determine status based on Result content
+			status := types.ToolResultStatusSuccess
+			if c.Result != nil {
+				// Check for error field
+				if errorVal, hasError := c.Result["error"]; hasError {
+					if errorBool, isBool := errorVal.(bool); isBool && errorBool {
+						status = types.ToolResultStatusError
+					}
+				}
+				// Check for status field
+				if statusVal, hasStatus := c.Result["status"]; hasStatus {
+					if statusStr, isString := statusVal.(string); isString && 
+					   (statusStr == "failed" || statusStr == "error") {
+						status = types.ToolResultStatusError
+					}
+				}
+			}
+			
 			// Convert to AWS Bedrock ToolResultBlock format per official docs
 			toolResult := types.ToolResultBlock{
 				ToolUseId: aws.String(c.ID),
@@ -440,7 +458,7 @@ func (c *bedrockChat) addContentsToHistory(contents []any) error {
 						Value: document.NewLazyDocument(c.Result),
 					},
 				},
-				Status: types.ToolResultStatusSuccess,
+				Status: status,
 			}
 			contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolResult{Value: toolResult})
 		default:

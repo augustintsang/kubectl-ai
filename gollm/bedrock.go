@@ -443,12 +443,13 @@ func (c *bedrockChat) addContentsToHistory(contents []any) error {
 				}
 				// Check for status field
 				if statusVal, hasStatus := c.Result["status"]; hasStatus {
-					if statusStr, isString := statusVal.(string); isString && 
-					   (statusStr == "failed" || statusStr == "error") {
+					if statusStr, isString := statusVal.(string); isString &&
+						(statusStr == "failed" || statusStr == "error") {
 						status = types.ToolResultStatusError
 					}
 				}
 			}
+
 			
 			// Convert to AWS Bedrock ToolResultBlock format per official docs
 			toolResult := types.ToolResultBlock{

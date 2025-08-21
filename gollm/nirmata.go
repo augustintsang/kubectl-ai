@@ -53,15 +53,9 @@ type NirmataClient struct {
 // Ensure NirmataClient implements the Client interface
 var _ Client = &NirmataClient{}
 
-// NewNirmataClient creates a new client for interacting with Nirmata models
 func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, error) {
-	// Validate API key
 	apiKey := os.Getenv("NIRMATA_API_KEY")
-	if apiKey == "" {
-		return nil, errors.New("NIRMATA_API_KEY environment variable required")
-	}
 
-	// Determine base URL (endpoint takes precedence)
 	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
 	if baseURLStr == "" {
 		baseURLStr = os.Getenv("NIRMATA_BASE_URL")
@@ -75,7 +69,6 @@ func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, 
 		return nil, fmt.Errorf("parsing base URL: %w", err)
 	}
 
-	// Create HTTP client with SSL configuration
 	httpClient := createCustomHTTPClient(opts.SkipVerifySSL)
 
 	return &NirmataClient{
@@ -85,12 +78,10 @@ func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, 
 	}, nil
 }
 
-// Close cleans up any resources used by the client
 func (c *NirmataClient) Close() error {
 	return nil
 }
 
-// StartChat starts a new chat session with the specified system prompt and model
 func (c *NirmataClient) StartChat(systemPrompt, model string) Chat {
 	selectedModel := getNirmataModel(model)
 
@@ -101,7 +92,6 @@ func (c *NirmataClient) StartChat(systemPrompt, model string) Chat {
 		history:      []nirmataMessage{},
 	}
 
-	// Add system prompt to history immediately if provided (unlike Bedrock, Nirmata needs it in message array)
 	if systemPrompt != "" {
 		chat.history = append(chat.history, nirmataMessage{
 			Role:    "system",
@@ -112,7 +102,6 @@ func (c *NirmataClient) StartChat(systemPrompt, model string) Chat {
 	return chat
 }
 
-// GenerateCompletion generates a single completion for the given request
 func (c *NirmataClient) GenerateCompletion(ctx context.Context, req *CompletionRequest) (CompletionResponse, error) {
 	chat := c.StartChat("", req.Model)
 	chatResponse, err := chat.Send(ctx, req.Prompt)
@@ -120,26 +109,22 @@ func (c *NirmataClient) GenerateCompletion(ctx context.Context, req *CompletionR
 		return nil, err
 	}
 
-	// Wrap ChatResponse in a CompletionResponse
 	return &nirmataCompletionResponse{
 		chatResponse: chatResponse,
 	}, nil
 }
 
-// SetResponseSchema sets the response schema for the client (not supported by Nirmata)
 func (c *NirmataClient) SetResponseSchema(schema *Schema) error {
 	return fmt.Errorf("response schema not supported by Nirmata")
 }
 
-// ListModels returns the list of supported Nirmata models
 func (c *NirmataClient) ListModels(ctx context.Context) ([]string, error) {
 	return []string{
-		"claude-sonnet-4",
-		"us.anthropic.claude-sonnet-4-20250514-v1:0",
+		"us.anthropic.claude-sonnet-4-20250514-v1:0",   // Claude Sonnet 4 (default)
+		"us.anthropic.claude-3-7-sonnet-20250219-v1:0", // Claude 3.7 Sonnet
 	}, nil
 }
 
-// nirmataChat implements the Chat interface for Nirmata conversations
 type nirmataChat struct {
 	client       *NirmataClient
 	systemPrompt string
@@ -148,7 +133,6 @@ type nirmataChat struct {
 	functionDefs []*FunctionDefinition
 }
 
-// Simple message format for HTTP API
 type nirmataMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -166,7 +150,6 @@ type nirmataChatResponse struct {
 func (c *nirmataChat) Initialize(history []*api.Message) error {
 	c.history = make([]nirmataMessage, 0, len(history))
 
-	// Add system prompt if exists
 	if c.systemPrompt != "" {
 		c.history = append(c.history, nirmataMessage{
 			Role:    "system",
@@ -175,7 +158,6 @@ func (c *nirmataChat) Initialize(history []*api.Message) error {
 	}
 
 	for _, msg := range history {
-		// Convert api.Message to nirmataMessage
 		role := "user"
 		switch msg.Source {
 		case api.MessageSourceUser:
@@ -183,21 +165,17 @@ func (c *nirmataChat) Initialize(history []*api.Message) error {
 		case api.MessageSourceModel, api.MessageSourceAgent:
 			role = "assistant"
 		default:
-			// Skip unknown message sources
 			continue
 		}
 
-		// Convert payload to string content
 		var content string
 		if msg.Type == api.MessageTypeText && msg.Payload != nil {
 			if textPayload, ok := msg.Payload.(string); ok {
 				content = textPayload
 			} else {
-				// Try to convert other types to string
 				content = fmt.Sprintf("%v", msg.Payload)
 			}
 		} else {
-			// Skip non-text messages for now
 			continue
 		}
 
@@ -216,36 +194,24 @@ func (c *nirmataChat) Initialize(history []*api.Message) error {
 	return nil
 }
 
-// Send sends a message to the chat and returns the response
 func (c *nirmataChat) Send(ctx context.Context, contents ...any) (ChatResponse, error) {
 	if len(contents) == 0 {
 		return nil, errors.New("no content provided")
 	}
 
-	// Convert contents to user message
 	userMessage := c.convertContentsToMessage(contents)
-
-	// Build complete message history (client manages state)
 	messages := append(c.history, userMessage)
-
-	// Create request
 	req := nirmataChatRequest{Messages: messages}
-
-	// Execute request with model parameter
-	endpoint := fmt.Sprintf("chat?model=%s", c.model)
 	var resp nirmataChatResponse
-	if err := c.client.doRequest(ctx, endpoint, req, &resp); err != nil {
+	if err := c.client.doRequestWithModel(ctx, "chat", c.model, req, &resp); err != nil {
 		return nil, err
 	}
 
-	// Update conversation history
 	c.history = append(c.history, userMessage)
 	c.history = append(c.history, nirmataMessage{
 		Role:    "assistant",
 		Content: resp.Message,
 	})
-
-	// Extract response content
 	response := &nirmataResponse{
 		message:  resp.Message,
 		metadata: resp.Metadata,
@@ -255,7 +221,6 @@ func (c *nirmataChat) Send(ctx context.Context, contents ...any) (ChatResponse, 
 	return response, nil
 }
 
-// SendStreaming sends a message and returns a streaming response
 func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatResponseIterator, error) {
 	if len(contents) == 0 {
 		return nil, errors.New("no content provided")
@@ -275,8 +240,12 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 	}
 
 	// Build URL with model parameter
-	endpoint := fmt.Sprintf("chat?model=%s", c.model)
-	u := c.client.baseURL.JoinPath(endpoint)
+	u := c.client.baseURL.JoinPath("chat")
+	if c.model != "" {
+		q := u.Query()
+		q.Set("model", c.model)
+		u.RawQuery = q.Encode()
+	}
 
 	// Create streaming request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(body))
@@ -285,7 +254,9 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.apiKey)
+	if c.client.apiKey != "" {
+		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.apiKey)
+	}
 
 	// Execute request
 	httpResp, err := c.client.httpClient.Do(httpReq)
@@ -375,16 +346,21 @@ func (c *nirmataChat) convertContentsToMessage(contents []any) nirmataMessage {
 	}
 }
 
-// doRequest follows llamacpp's clean HTTP pattern
-func (c *NirmataClient) doRequest(ctx context.Context, endpoint string, req any, resp any) error {
+// doRequestWithModel makes HTTP requests with model as query parameter
+func (c *NirmataClient) doRequestWithModel(ctx context.Context, endpoint, model string, req any, resp any) error {
 	// Marshal request
 	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshaling request: %w", err)
 	}
 
-	// Build URL
+	// Build URL with query parameters
 	u := c.baseURL.JoinPath(endpoint)
+	if model != "" {
+		q := u.Query()
+		q.Set("model", model)
+		u.RawQuery = q.Encode()
+	}
 
 	// Create request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(body))
@@ -394,7 +370,9 @@ func (c *NirmataClient) doRequest(ctx context.Context, endpoint string, req any,
 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.apiKey)
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.apiKey)
+	}
 
 	// Execute
 	httpResp, err := c.httpClient.Do(httpReq)
@@ -417,31 +395,25 @@ func (c *NirmataClient) doRequest(ctx context.Context, endpoint string, req any,
 	return json.NewDecoder(httpResp.Body).Decode(resp)
 }
 
-// SetFunctionDefinitions configures the available functions for tool use
 func (c *nirmataChat) SetFunctionDefinitions(functions []*FunctionDefinition) error {
 	c.functionDefs = functions
-	// Function calling would require /chat endpoint support
 	return nil
 }
 
-// IsRetryableError determines if an error is retryable
 func (c *nirmataChat) IsRetryableError(err error) bool {
 	return DefaultIsRetryableError(err)
 }
 
-// nirmataResponse implements ChatResponse for regular (non-streaming) responses
 type nirmataResponse struct {
 	message  string
 	metadata any
 	model    string
 }
 
-// UsageMetadata returns the usage metadata from the response
 func (r *nirmataResponse) UsageMetadata() any {
 	return r.metadata
 }
 
-// Candidates returns the candidate responses
 func (r *nirmataResponse) Candidates() []Candidate {
 	candidate := &nirmataCandidate{
 		text:  r.message,
@@ -522,12 +494,6 @@ func (p *nirmataTextPart) AsFunctionCalls() ([]FunctionCall, bool) {
 	return nil, false
 }
 
-// Helper functions
-
-// getNirmataModel returns the model to use, checking in order:
-// 1. Explicitly provided model
-// 2. Environment variable NIRMATA_MODEL
-// 3. Default model (Claude Sonnet 4)
 func getNirmataModel(model string) string {
 	if model != "" {
 		klog.V(2).Infof("Using explicitly provided model: %s", model)
@@ -539,7 +505,7 @@ func getNirmataModel(model string) string {
 		return envModel
 	}
 
-	defaultModel := "claude-sonnet-4"
+	defaultModel := "us.anthropic.claude-sonnet-4-20250514-v1:0"
 	klog.V(1).Infof("Using default model: %s", defaultModel)
 	return defaultModel
 }

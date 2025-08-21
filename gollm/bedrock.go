@@ -450,7 +450,6 @@ func (c *bedrockChat) addContentsToHistory(contents []any) error {
 				}
 			}
 
-			
 			// Convert to AWS Bedrock ToolResultBlock format per official docs
 			toolResult := types.ToolResultBlock{
 				ToolUseId: aws.String(c.ID),

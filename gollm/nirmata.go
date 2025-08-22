@@ -54,14 +54,11 @@ type NirmataClient struct {
 var _ Client = &NirmataClient{}
 
 func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, error) {
-	apiKey := os.Getenv("NIRMATA_API_KEY")
+	apiKey := os.Getenv("NIRMATA_JWT")
 
 	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
 	if baseURLStr == "" {
-		baseURLStr = os.Getenv("NIRMATA_BASE_URL")
-	}
-	if baseURLStr == "" {
-		return nil, errors.New("NIRMATA_ENDPOINT or NIRMATA_BASE_URL environment variable required")
+		return nil, errors.New("NIRMATA_ENDPOINT environment variable required")
 	}
 
 	baseURL, err := url.Parse(baseURLStr)

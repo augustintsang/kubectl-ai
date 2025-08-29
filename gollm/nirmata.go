@@ -48,13 +48,21 @@ type NirmataClient struct {
 	baseURL    *url.URL
 	httpClient *http.Client
 	apiKey     string
+	jwtToken   string
 }
 
 // Ensure NirmataClient implements the Client interface
 var _ Client = &NirmataClient{}
 
 func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, error) {
-	apiKey := os.Getenv("NIRMATA_JWT")
+	// Assuming the user will always give the API key, not the JWT token.
+	apiKey := os.Getenv("NIRMATA_API_KEY")
+	if apiKey == "" {
+		return nil, errors.New("NIRMATA_API_KEY environment variable required")
+	}
+
+	// TODO: Fetch the JWT token from the Nirmata API.
+	jwtToken := apiKey
 
 	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
 	if baseURLStr == "" {
@@ -72,6 +80,7 @@ func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, 
 		baseURL:    baseURL,
 		httpClient: httpClient,
 		apiKey:     apiKey,
+		jwtToken:   jwtToken,
 	}, nil
 }
 
@@ -367,9 +376,16 @@ func (c *NirmataClient) doRequestWithModel(ctx context.Context, endpoint, model 
 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.apiKey)
+
+	// TODO: Implement JWT token expiry check.
+	isJwtExpired := false
+	if c.jwtToken == "" && isJwtExpired {
+		jwtToken := "fetchFromNirmataAPI"
+		c.jwtToken = jwtToken
+
 	}
+
+	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.jwtToken)s
 
 	// Execute
 	httpResp, err := c.httpClient.Do(httpReq)

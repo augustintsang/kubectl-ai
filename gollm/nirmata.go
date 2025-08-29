@@ -252,7 +252,7 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 	}
 
 	// Build URL with model parameter
-	u := c.client.baseURL.JoinPath("chat")
+	u := c.client.baseURL.JoinPath("llm-apps").JoinPath("chat")
 	if c.model != "" {
 		q := u.Query()
 		q.Set("model", c.model)

@@ -20,8 +20,6 @@ require (
 	k8s.io/klog/v2 v2.130.1
 )
 
-require github.com/golang/glog v1.2.3 // indirect
-
 require (
 	cloud.google.com/go v0.118.3 // indirect
 	cloud.google.com/go/auth v0.15.0 // indirect
@@ -51,7 +49,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
-	github.com/nirmata/go-client v1.1.3-0.20250829114340-eda9a17b7d12
+	github.com/nirmata/go-client v1.2.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

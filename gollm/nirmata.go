@@ -28,6 +28,8 @@ import (
 	"strings"
 
 	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
+	nchClient "github.com/nirmata/go-client"
+
 	"k8s.io/klog/v2"
 )
 
@@ -63,12 +65,14 @@ func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, 
 		return nil, errors.New("NIRMATA_API_KEY environment variable required")
 	}
 
-	// TODO: Fetch the JWT token from the Nirmata API.
-	jwtToken := apiKey
-
 	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
 	if baseURLStr == "" {
 		return nil, errors.New("NIRMATA_ENDPOINT environment variable required")
+	}
+
+	jwtToken, err := fetchJWTToken(baseURLStr, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch JWT token: %v", err)
 	}
 
 	baseURL, err := url.Parse(baseURLStr)
@@ -263,12 +267,13 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// TODO: Implement JWT token expiry check.
-	isJwtExpired := false
-	if c.client.jwtToken == "" && isJwtExpired {
-		jwtToken := "fetchFromNirmataAPI"
+	shouldRefreshJwtToken := c.client.jwtToken == "" || nchClient.IsJwtTokenExpired(c.client.jwtToken)
+	if shouldRefreshJwtToken {
+		jwtToken, err := fetchJWTToken(c.client.baseURL.String(), c.client.apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch JWT token: %v", err)
+		}
 		c.client.jwtToken = jwtToken
-
 	}
 	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.jwtToken)
 
@@ -385,12 +390,13 @@ func (c *NirmataClient) doRequestWithModel(ctx context.Context, endpoint, model 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// TODO: Implement JWT token expiry check.
-	isJwtExpired := false
-	if c.jwtToken == "" && isJwtExpired {
-		jwtToken := "fetchFromNirmataAPI"
+	shouldRefreshJwtToken := c.jwtToken == "" || nchClient.IsJwtTokenExpired(c.jwtToken)
+	if shouldRefreshJwtToken {
+		jwtToken, err := fetchJWTToken(c.baseURL.String(), c.apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to fetch JWT token: %v", err)
+		}
 		c.jwtToken = jwtToken
-
 	}
 	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.jwtToken)
 
@@ -557,4 +563,13 @@ func (r *nirmataCompletionResponse) UsageMetadata() any {
 		return nil
 	}
 	return r.chatResponse.UsageMetadata()
+}
+
+func fetchJWTToken(baseURL, apiKey string) (string, error) {
+	nchClient := nchClient.NewClient(baseURL, apiKey, false)
+	jwtToken, err := nchClient.FetchJWTToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch JWT token: %v", err)
+	}
+	return jwtToken, nil
 }

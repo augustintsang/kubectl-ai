@@ -260,9 +260,15 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	if c.client.apiKey != "" {
-		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.apiKey)
+
+	// TODO: Implement JWT token expiry check.
+	isJwtExpired := false
+	if c.client.jwtToken == "" && isJwtExpired {
+		jwtToken := "fetchFromNirmataAPI"
+		c.client.jwtToken = jwtToken
+
 	}
+	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.jwtToken)
 
 	// Execute request
 	httpResp, err := c.client.httpClient.Do(httpReq)
@@ -384,8 +390,7 @@ func (c *NirmataClient) doRequestWithModel(ctx context.Context, endpoint, model 
 		c.jwtToken = jwtToken
 
 	}
-
-	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.jwtToken)s
+	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.jwtToken)
 
 	// Execute
 	httpResp, err := c.httpClient.Do(httpReq)

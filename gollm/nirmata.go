@@ -28,6 +28,8 @@ import (
 	"strings"
 
 	"github.com/GoogleCloudPlatform/kubectl-ai/pkg/api"
+	nchClient "github.com/nirmata/go-client"
+
 	"k8s.io/klog/v2"
 )
 
@@ -37,6 +39,8 @@ func init() {
 		klog.Fatalf("Failed to register nirmata provider: %v", err)
 	}
 }
+
+const DEFAULT_NIRMATA_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
 // newNirmataClientFactory creates a new Nirmata client with the given options
 func newNirmataClientFactory(ctx context.Context, opts ClientOptions) (Client, error) {
@@ -48,17 +52,27 @@ type NirmataClient struct {
 	baseURL    *url.URL
 	httpClient *http.Client
 	apiKey     string
+	jwtToken   string
 }
 
 // Ensure NirmataClient implements the Client interface
 var _ Client = &NirmataClient{}
 
 func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, error) {
-	apiKey := os.Getenv("NIRMATA_JWT")
+	// Assuming the user will always give the API key, not the JWT token.
+	apiKey := os.Getenv("NIRMATA_API_KEY")
+	if apiKey == "" {
+		return nil, errors.New("NIRMATA_API_KEY environment variable required")
+	}
 
 	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
 	if baseURLStr == "" {
 		return nil, errors.New("NIRMATA_ENDPOINT environment variable required")
+	}
+
+	jwtToken, err := fetchJWTToken(baseURLStr, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch JWT token: %v", err)
 	}
 
 	baseURL, err := url.Parse(baseURLStr)
@@ -72,6 +86,7 @@ func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, 
 		baseURL:    baseURL,
 		httpClient: httpClient,
 		apiKey:     apiKey,
+		jwtToken:   jwtToken,
 	}, nil
 }
 
@@ -251,9 +266,16 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	if c.client.apiKey != "" {
-		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.apiKey)
+
+	shouldRefreshJwtToken := c.client.jwtToken == "" || nchClient.IsJwtTokenExpired(c.client.jwtToken)
+	if shouldRefreshJwtToken {
+		jwtToken, err := fetchJWTToken(c.client.baseURL.String(), c.client.apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch JWT token: %v", err)
+		}
+		c.client.jwtToken = jwtToken
 	}
+	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.jwtToken)
 
 	// Execute request
 	httpResp, err := c.client.httpClient.Do(httpReq)
@@ -367,9 +389,16 @@ func (c *NirmataClient) doRequestWithModel(ctx context.Context, endpoint, model 
 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.apiKey)
+
+	shouldRefreshJwtToken := c.jwtToken == "" || nchClient.IsJwtTokenExpired(c.jwtToken)
+	if shouldRefreshJwtToken {
+		jwtToken, err := fetchJWTToken(c.baseURL.String(), c.apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to fetch JWT token: %v", err)
+		}
+		c.jwtToken = jwtToken
 	}
+	httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.jwtToken)
 
 	// Execute
 	httpResp, err := c.httpClient.Do(httpReq)
@@ -501,10 +530,8 @@ func getNirmataModel(model string) string {
 		klog.V(1).Infof("Using model from environment variable: %s", envModel)
 		return envModel
 	}
-
-	defaultModel := "us.anthropic.claude-sonnet-4-20250514-v1:0"
-	klog.V(1).Infof("Using default model: %s", defaultModel)
-	return defaultModel
+	klog.V(1).Infof("Using default model: %s", DEFAULT_NIRMATA_MODEL)
+	return DEFAULT_NIRMATA_MODEL
 }
 
 // nirmataCompletionResponse wraps a ChatResponse to implement CompletionResponse
@@ -536,4 +563,13 @@ func (r *nirmataCompletionResponse) UsageMetadata() any {
 		return nil
 	}
 	return r.chatResponse.UsageMetadata()
+}
+
+func fetchJWTToken(baseURL, apiKey string) (string, error) {
+	nchClient := nchClient.NewClient(baseURL, apiKey, false)
+	jwtToken, err := nchClient.FetchJWTToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch JWT token: %v", err)
+	}
+	return jwtToken, nil
 }

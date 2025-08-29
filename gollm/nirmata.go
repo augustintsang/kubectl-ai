@@ -38,6 +38,8 @@ func init() {
 	}
 }
 
+const DEFAULT_NIRMATA_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+
 // newNirmataClientFactory creates a new Nirmata client with the given options
 func newNirmataClientFactory(ctx context.Context, opts ClientOptions) (Client, error) {
 	return NewNirmataClient(ctx, opts)
@@ -522,10 +524,8 @@ func getNirmataModel(model string) string {
 		klog.V(1).Infof("Using model from environment variable: %s", envModel)
 		return envModel
 	}
-
-	defaultModel := "us.anthropic.claude-sonnet-4-20250514-v1:0"
-	klog.V(1).Infof("Using default model: %s", defaultModel)
-	return defaultModel
+	klog.V(1).Infof("Using default model: %s", DEFAULT_NIRMATA_MODEL)
+	return DEFAULT_NIRMATA_MODEL
 }
 
 // nirmataCompletionResponse wraps a ChatResponse to implement CompletionResponse

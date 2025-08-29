@@ -87,8 +87,8 @@ github.com/keybase/go-keychain v0.0.1 h1:way+bWYa6lDppZoZcgMbYsvC7GxljxrskdNInRt
 github.com/keybase/go-keychain v0.0.1/go.mod h1:PdEILRW3i9D8JcdM+FmY6RwkHGnhHxXwkPPMeUgOK1k=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
-github.com/nirmata/go-client v1.2.0 h1:v/CuaLk4laeVGG/qmCQVHZUMMlQzI5u39GVWya1/Y0Q=
-github.com/nirmata/go-client v1.2.0/go.mod h1:9LzOn3WJvYnmFbt8Gvn8p9ctiaEeRnmUIyvl3Pqj8gI=
+github.com/nirmata/go-client v1.2.1 h1:W9qITuqHl/0SKENZPmS2dmHGEsA0V4S6fC38oSLYu70=
+github.com/nirmata/go-client v1.2.1/go.mod h1:9LzOn3WJvYnmFbt8Gvn8p9ctiaEeRnmUIyvl3Pqj8gI=
 github.com/ollama/ollama v0.6.5 h1:vXKkVX57ql/1ZzMw4SVK866Qfd6pjwEcITVyEpF0QXQ=
 github.com/ollama/ollama v0.6.5/go.mod h1:pGgtoNyc9DdM6oZI6yMfI6jTk2Eh4c36c2GpfQCH7PY=
 github.com/openai/openai-go v1.11.0 h1:ztH+W0ug5Kh9+/EErHa8KAmhwixkzjK57rXyE+ZnSCk=

@@ -49,7 +49,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
-	github.com/nirmata/go-client v1.2.0
+	github.com/nirmata/go-client v1.2.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

@@ -42,6 +42,8 @@ const (
 	NIRMATA_APIKEY_ENV   = "NIRMATA_APIKEY"
 	NIRMATA_ENDPOINT_ENV = "NIRMATA_ENDPOINT"
 
+	DEFAULT_NIRMATA_ENDPOINT = "https://nirmata.io"
+
 	DEFAULT_NIRMATA_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 )
 
@@ -65,7 +67,8 @@ func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, 
 
 	baseURLStr := os.Getenv(NIRMATA_ENDPOINT_ENV)
 	if baseURLStr == "" {
-		return nil, errors.New(NIRMATA_ENDPOINT_ENV + " environment variable required")
+		klog.V(1).Infof("Using default endpoint: %s", DEFAULT_NIRMATA_ENDPOINT)
+		baseURLStr = DEFAULT_NIRMATA_ENDPOINT
 	}
 
 	baseURL, err := url.Parse(baseURLStr)

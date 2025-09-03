@@ -38,6 +38,13 @@ func init() {
 	}
 }
 
+const (
+	NIRMATA_APIKEY_ENV   = "NIRMATA_APIKEY"
+	NIRMATA_ENDPOINT_ENV = "NIRMATA_ENDPOINT"
+
+	DEFAULT_NIRMATA_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+)
+
 // newNirmataClientFactory creates a new Nirmata client with the given options
 func newNirmataClientFactory(ctx context.Context, opts ClientOptions) (Client, error) {
 	return NewNirmataClient(ctx, opts)
@@ -54,11 +61,11 @@ type NirmataClient struct {
 var _ Client = &NirmataClient{}
 
 func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, error) {
-	apiKey := os.Getenv("NIRMATA_APIKEY")
+	apiKey := os.Getenv(NIRMATA_APIKEY_ENV)
 
-	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
+	baseURLStr := os.Getenv(NIRMATA_ENDPOINT_ENV)
 	if baseURLStr == "" {
-		return nil, errors.New("NIRMATA_ENDPOINT environment variable required")
+		return nil, errors.New(NIRMATA_ENDPOINT_ENV + " environment variable required")
 	}
 
 	baseURL, err := url.Parse(baseURLStr)
@@ -502,9 +509,8 @@ func getNirmataModel(model string) string {
 		return envModel
 	}
 
-	defaultModel := "us.anthropic.claude-sonnet-4-20250514-v1:0"
-	klog.V(1).Infof("Using default model: %s", defaultModel)
-	return defaultModel
+	klog.V(1).Infof("Using default model: %s", DEFAULT_NIRMATA_MODEL)
+	return DEFAULT_NIRMATA_MODEL
 }
 
 // nirmataCompletionResponse wraps a ChatResponse to implement CompletionResponse

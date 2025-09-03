@@ -54,7 +54,7 @@ type NirmataClient struct {
 var _ Client = &NirmataClient{}
 
 func NewNirmataClient(ctx context.Context, opts ClientOptions) (*NirmataClient, error) {
-	apiKey := os.Getenv("NIRMATA_JWT")
+	apiKey := os.Getenv("NIRMATA_APIKEY")
 
 	baseURLStr := os.Getenv("NIRMATA_ENDPOINT")
 	if baseURLStr == "" {
@@ -252,7 +252,7 @@ func (c *nirmataChat) SendStreaming(ctx context.Context, contents ...any) (ChatR
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.client.apiKey != "" {
-		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.client.apiKey)
+		httpReq.Header.Set("Authorization", "NIRMATA-API "+c.client.apiKey)
 	}
 
 	// Execute request
@@ -368,7 +368,7 @@ func (c *NirmataClient) doRequestWithModel(ctx context.Context, endpoint, model 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "NIRMATA-JWT "+c.apiKey)
+		httpReq.Header.Set("Authorization", "NIRMATA-API "+c.apiKey)
 	}
 
 	// Execute

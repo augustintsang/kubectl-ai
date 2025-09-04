@@ -45,6 +45,8 @@ const (
 	DEFAULT_NIRMATA_ENDPOINT = "https://nirmata.io"
 
 	DEFAULT_NIRMATA_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+
+	DEFAULT_NIRMATA_REGION = "us-west-2"
 )
 
 // newNirmataClientFactory creates a new Nirmata client with the given options

@@ -44,7 +44,7 @@ const (
 
 	DEFAULT_NIRMATA_ENDPOINT = "https://nirmata.io"
 
-	DEFAULT_NIRMATA_MODEL = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+	DEFAULT_NIRMATA_MODEL = "arn:aws:bedrock:us-west-2:844333597536:application-inference-profile/1uz8gxxxacuh"
 )
 
 // newNirmataClientFactory creates a new Nirmata client with the given options
